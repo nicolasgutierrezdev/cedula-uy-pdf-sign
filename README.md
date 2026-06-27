@@ -4,7 +4,22 @@
 
 Sign PDF documents locally using a Uruguayan national ID card (cédula) through PKCS#11, producing PDF digital signatures compatible with standard PDF signature validators.
 
+[![PyPI version](https://img.shields.io/pypi/v/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carlosplanchon/cedula-uy-pdf-sign)
+
+> ⚠️ **Disclaimer**: This is an experimental, community-maintained project. It is **not affiliated with or endorsed by AGESIC**, is **not officially certified**, and **does not guarantee the legal validity** of the signatures it produces. Use at your own risk. See [Legal and compliance](#legal-and-compliance) for details.
+
+## Quick start
+
+> Requires **Linux** with the Uruguayan cédula PKCS#11 middleware installed. The full smart-card setup is in [Requirements](#requirements) and [Setup on Arch Linux](#setup-on-arch-linux).
+
+```bash
+uv tool install cedula-uy-pdf-sign     # install
+firmauy list-tokens                    # verify the card is detected
+firmauy sign input.pdf                 # sign -> input_firmado.pdf (prompts for the PIN)
+```
 
 ## Overview
 
@@ -19,53 +34,6 @@ The CLI tool is invoked as `firmauy` and supports:
 - discovering available PKCS#11 tokens and certificates
 - non-interactive PIN sources for controlled automation workflows
 
-## Project status and limitations
-
-This project is copyright-registered, experimental, community-maintained, and not officially certified.
-
-It is intended for developers and technically proficient users who understand the implications of using smart cards, PKCS#11 middleware, and digital signatures.
-
-### Legal / Compliance Notice
-
-⚠️ **Important**
-
-This project:
-
-- is **not affiliated with or endorsed by AGESIC**
-- does **not claim official certification or compliance**
-- is provided **for technical and educational purposes**
-
-While it uses standard cryptographic mechanisms and aims to align with Uruguayan digital signature practices, **it should not be assumed to be valid for legal or regulatory use without independent verification**.
-
-Users are solely responsible for ensuring that the generated signatures meet any legal or regulatory requirements applicable to their use case.
-
-### Intended use
-
-This project is intended for local, developer-oriented PDF signing workflows using a Uruguayan ID card through PKCS#11.
-
-It is especially aimed at users who want to:
-
-- sign PDF documents locally
-- understand and reproduce a PKCS#11-based signing workflow
-- experiment with smart card integration on Linux
-- build automation around PDF signing under their own responsibility
-
-It is **not intended** to replace official, certified, or legally guaranteed signing platforms.
-
-### Scope
-
-This tool focuses on:
-
-- technical integration with PKCS#11
-- PDF signing workflows
-- reproducibility of signature appearance
-
-It does **not**:
-
-- validate certificates against official trust lists
-- provide legal guarantees
-- replace certified signing platforms
-
 ## Requirements
 
 ### Hardware
@@ -75,9 +43,15 @@ It does **not**:
 
 ### Operating system
 
-This tool is primarily designed and tested for Arch Linux.
+This tool targets **Linux** and is primarily developed and tested on **Arch Linux**.
 
 Other Linux distributions may work if the required smart card stack, PKCS#11 middleware, and Python environment are correctly configured.
+
+**Windows and macOS are not supported.**
+
+### Python
+
+Python **3.10 or newer**.
 
 ### PKCS#11 middleware
 
@@ -183,6 +157,16 @@ firmauy sign input.pdf output_signed.pdf --pin-source fd --pin-fd 3
 
 ⚠️ Avoid exposing the PIN in shell history or process lists.
 
+### Timestamping (TSA, optional)
+
+Embed a trusted timestamp from a Time Stamping Authority:
+
+```bash
+firmauy sign input.pdf output_signed.pdf --tsa-url https://your-tsa/endpoint
+```
+
+TSA timestamping is **optional** and is **not required** for the standard Uruguayan cédula signing flow. It adds independent, trusted-time evidence to the signature and may involve an external network request.
+
 ### Sign batch
 
 Sign multiple PDFs with a single PKCS#11 session. The card PIN is entered only once.
@@ -211,7 +195,7 @@ firmauy sign-batch --input-dir ~/docs --output-dir ~/signed --suffix _signed
 
 The output directory is created automatically if it does not exist.
 
-All options available for `sign` — position, PIN source, reason, TSA, etc. — are also available for `sign-batch`.
+All options available for `sign` (position, PIN source, reason, TSA, etc.) are also available for `sign-batch`.
 
 ⚠️ This tool produces cryptographic signatures. Legal validity depends on applicable regulations and use context.
 
@@ -252,13 +236,11 @@ Note: Optional features such as timestamping (TSA) may involve external network 
 
 ## Signature verification
 
-Signed documents can be independently verified using external tools, such as the official validator provided by AGESIC:
+Signed documents can be independently verified using external tools, such as the official validator provided by AGESIC (no affiliation implied):
 
 [https://firma.gub.uy/](https://firma.gub.uy/)
 
-No affiliation with or endorsement by AGESIC is implied.
-
-A successful technical verification does not necessarily imply legal validity for every use case. Users should independently verify the legal and regulatory requirements applicable to their situation.
+Note that a successful **technical** verification does not by itself imply **legal** validity for every use case. See [Legal and compliance](#legal-and-compliance).
 
 ## Known issues
 
@@ -292,6 +274,38 @@ This behavior is outside the control of this application.
 - The default visual signature appearance was derived by analyzing documents signed with official software.
 - This project focuses on practical interoperability rather than strict compliance with any specific implementation.
 
+## Legal and compliance
+
+This project is copyright-registered, experimental, community-maintained, and not officially certified.
+
+It is intended for developers and technically proficient users who understand the implications of using smart cards, PKCS#11 middleware, and digital signatures.
+
+**This project:**
+
+- is **not affiliated with or endorsed by AGESIC**
+- does **not** claim official certification or compliance
+- does **not** guarantee the legal validity of generated signatures
+- is provided **for technical and educational purposes**
+
+While it uses standard cryptographic mechanisms and aims to align with Uruguayan digital signature practices, the generated signatures should not be assumed valid for legal or regulatory use without independent verification. Users are solely responsible for ensuring that generated signatures meet any legal or regulatory requirements applicable to their use case.
+
+### Intended use
+
+Local, developer-oriented PDF signing using a Uruguayan ID card through PKCS#11. It is especially aimed at users who want to:
+
+- sign PDF documents locally
+- understand and reproduce a PKCS#11-based signing workflow
+- experiment with smart card integration on Linux
+- build automation around PDF signing under their own responsibility
+
+It is **not** intended to replace official, certified, or legally guaranteed signing platforms.
+
+### Scope
+
+This tool focuses on technical integration with PKCS#11, PDF signing workflows, and reproducibility of signature appearance.
+
+It does **not** validate certificates against official trust lists, provide legal guarantees, or replace certified signing platforms.
+
 ## Copyright / software registration
 
 This software has been registered as a computer program with the Uruguayan Dirección Nacional de la Propiedad Industrial y Registro de Software.
@@ -305,9 +319,28 @@ The registration was published in the official Boletín de la Propiedad Industri
 - Classification: Programa de ordenador
 - Official publication: [Boletín de la Propiedad Industrial Nº 357](https://www.gub.uy/ministerio-industria-energia-mineria/sites/ministerio-industria-energia-mineria/files/documentos/publicaciones/Boletin%20357.pdf)
 
-This registration refers to the authorship and registration of the software as a copyrighted work.
+This registration concerns the authorship of the software as a copyrighted work. It does **not** imply official certification, endorsement, legal validity of generated signatures, or regulatory compliance of any specific use case. See [Legal and compliance](#legal-and-compliance).
 
-It does not imply official certification, endorsement, legal validity of generated signatures, or regulatory compliance of any specific use case.
+## Development
+
+The project uses [`uv`](https://docs.astral.sh/uv/) for environment and dependency management.
+
+```bash
+# Clone the repository
+git clone https://github.com/carlosplanchon/cedula-uy-pdf-sign.git
+cd cedula-uy-pdf-sign
+
+# Create the environment and install dependencies (runtime + dev)
+uv sync
+
+# Run the test suite
+uv run pytest
+
+# Run the CLI from the working tree
+uv run firmauy --help
+```
+
+The package source lives under `src/cedula_uy_pdf_sign/`; tests under `tests/`.
 
 ## Contributing & reporting issues
 
@@ -317,7 +350,7 @@ Feel free to open an issue on GitHub.
 
 ## Acknowledgements
 
-- [@nicolasgutierrezdev](https://github.com/nicolasgutierrezdev) — provided reference for signature appearance inspired by signatures generated using the Uruguayan ID card (cédula).
+- [@nicolasgutierrezdev](https://github.com/nicolasgutierrezdev): provided reference for signature appearance inspired by signatures generated using the Uruguayan ID card (cédula).
 
 ## License
 
