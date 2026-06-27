@@ -356,7 +356,7 @@ bash scripts/dev-softhsm-setup.sh
 
 The script prints ready-to-run `firmauy list-certs` / `firmauy sign` commands pointing at the SoftHSM module. The resulting PDF is a cryptographically valid signature, but it will **not** validate as a *cédula* signature on [firma.gub.uy](https://firma.gub.uy/) (the issuing CA is a local fake, by design). Reset everything with `rm -rf .softhsm`.
 
-The same setup powers an end-to-end integration test (`tests/test_integration_pkcs11.py`) that signs and then cryptographically verifies a PDF through the real PKCS#11 path. It is **skipped automatically** when SoftHSM2 / OpenSC / OpenSSL are not installed, so `uv run pytest` works either way.
+The same setup powers a set of end-to-end integration tests (`tests/test_integration_pkcs11.py`) that exercise the real PKCS#11 path: signing plus cryptographic verification of the resulting PDF, and the selection/error branches that are unsafe to reproduce on the real card (expired certificate, certificate without a private key, multiple tokens, certificate scoring and `--cert-id` override). They are **skipped automatically** when SoftHSM2 / OpenSC / OpenSSL are not installed, so `uv run pytest` works either way.
 
 ## Contributing & reporting issues
 

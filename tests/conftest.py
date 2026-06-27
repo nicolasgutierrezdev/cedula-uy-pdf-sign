@@ -44,7 +44,7 @@ def _build_cert(
 
 _SUBJECT = [
     x509.NameAttribute(NameOID.COMMON_NAME, "Juan Test"),
-    x509.NameAttribute(NameOID.SERIAL_NUMBER, "12345678"),
+    x509.NameAttribute(NameOID.SERIAL_NUMBER, "00000000"),
 ]
 
 _ISSUER = [

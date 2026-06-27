@@ -62,7 +62,7 @@ openssl req -x509 -new -key "$TMP/ca.key" -days 3650 -out "$TMP/ca.crt" \
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP/leaf.key"
 openssl req -new -key "$TMP/leaf.key" -out "$TMP/leaf.csr" \
-  -subj "/C=UY/CN=PEREZ PEREZ JUAN/serialNumber=1.2.3.4-12345678"
+  -subj "/C=UY/CN=PEREZ PEREZ JUAN/serialNumber=00000000"
 
 cat > "$TMP/leaf.ext" <<EOF
 keyUsage = critical, digitalSignature, nonRepudiation
