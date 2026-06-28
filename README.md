@@ -249,6 +249,18 @@ firmauy sign-xml-batch file1.xml file2.xml --output-dir ~/signed
 firmauy sign-xml-batch --input-dir ~/docs --output-dir ~/signed
 ```
 
+For unattended bulk signing, supply the PIN non-interactively (entered once for the whole
+batch), exactly as with the other commands:
+
+```bash
+# PIN from an environment variable
+firmauy sign-xml-batch --input-dir ~/docs --output-dir ~/signed \
+  --pin-source env --pin-env-var MY_PIN
+
+# PIN from stdin
+echo "1234" | firmauy sign-xml-batch --input-dir ~/docs --output-dir ~/signed --pin-source stdin
+```
+
 Output files are named `<original-name>_firmado.xml` by default; change it with `--suffix`. The
 output directory is created automatically. All the `sign-xml` options (token, certificate and
 PIN selection, `--timezone`, `--overwrite`) also apply.
