@@ -361,6 +361,23 @@ certificate chain to the national root. Trust anchors work exactly like `verify-
 Same indication model (VALID / INDETERMINATE / INVALID) and exit codes as `verify-xml`. When a
 PDF has multiple signatures, the overall indication is the worst one.
 
+### About verification (scope and limitations)
+
+`verify-xml` and `verify-pdf` perform a **local, technical** verification based on open standards
+(XMLDSig / XAdES, PAdES, X.509 path validation per RFC 5280, and CRL/OCSP), anchored to the
+Uruguayan national root.
+
+- This is **not** the official validator and does **not** provide an official or legally binding
+  validation. For legal validity, use the official channels.
+- On the decisive questions (integrity, cryptographic validity, chain to the national root,
+  revocation) the result should agree with any standards-conformant validator, because it follows
+  the same standards and the same PKI, not because it reproduces any specific tool.
+- It is a focused implementation: it does not cover every XAdES / PAdES profile or policy feature
+  (for example signature policies or long-term / archival levels), so verdicts may differ from
+  other validators on edge cases.
+
+A `VALID` result is a technical assessment, not a statement of legal validity.
+
 ### Discover tokens and certificates
 
 List all visible PKCS#11 tokens:
