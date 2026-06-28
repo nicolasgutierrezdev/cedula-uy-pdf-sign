@@ -2,7 +2,7 @@
 
 ![cedula-uy-pdf-sign banner](https://raw.githubusercontent.com/carlosplanchon/cedula-uy-pdf-sign/main/assets/banner.jpg)
 
-Sign PDF documents locally using a Uruguayan national ID card (cédula) through PKCS#11, producing PDF digital signatures compatible with standard PDF signature validators.
+Sign PDF and XML documents locally using a Uruguayan national ID card (cédula) through PKCS#11, producing standards-based PDF and XML (XAdES) digital signatures that verify with standard signature validators.
 
 [![PyPI version](https://img.shields.io/pypi/v/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
