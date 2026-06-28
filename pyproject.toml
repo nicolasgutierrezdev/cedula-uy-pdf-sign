@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cedula-uy-pdf-sign"
-version = "0.7.0"
+version = "0.8.0"
 authors = [
   { name = "Carlos A. Planchón", email = "carlosandresplanchonprestes@gmail.com" }
 ]
@@ -28,12 +28,14 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
-    "cryptography>=46.0.5",
-    "lxml>=5.0",
-    "pyhanko[pkcs11]>=0.34.1",
-    "python-pkcs11>=0.9.3",
-    "reportlab>=4.4.10",
-    "typer>=0.24.1",
+    "asn1crypto>=1.5.1",
+    "cryptography>=49.0.0",
+    "lxml>=6.1.1",
+    "pyhanko[pkcs11]>=0.35.1",
+    "pyhanko-certvalidator>=0.31.1",
+    "python-pkcs11>=0.9.4",
+    "reportlab>=5.0.0",
+    "typer>=0.26.8",
 ]
 
 [project.urls]
