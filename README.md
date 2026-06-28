@@ -29,6 +29,7 @@ The CLI tool is invoked as `firmauy` and supports:
 
 - signing individual PDF documents
 - batch-signing multiple PDFs with a single PKCS#11 session
+- signing XML documents (XAdES-BES, enveloped)
 - configuring the visible signature position
 - selecting the signature page
 - discovering available PKCS#11 tokens and certificates
@@ -201,6 +202,40 @@ All options available for `sign` (position, PIN source, reason, TSA, etc.) are a
 
 Make sure you have reviewed all documents before signing them in batch.
 
+### Sign an XML document (XAdES)
+
+Sign an XML document with the cédula, producing a standards-based **XAdES-BES enveloped**
+signature following the XAdES specification (ETSI EN 319 132). It verifies with standard XAdES
+validators and is suitable for signing structured documents such as electronic fiscal documents
+(CFE / facturación electrónica).
+
+```bash
+firmauy sign-xml input.xml output_signed.xml
+```
+
+If the output path is omitted, the signed file is saved as `<input>_firmado.xml`.
+
+Token discovery, certificate selection and PIN handling work exactly like the PDF commands, so
+the same options apply: `--token-label`, `--cert-id`, `--pin-source` (with `--pin-env-var` /
+`--pin-fd`), `--timezone` and `--overwrite`.
+
+```bash
+# Non-interactive PIN, same as the PDF commands
+echo "1234" | firmauy sign-xml input.xml output_signed.xml --pin-source stdin
+```
+
+Signature profile produced:
+
+- **Format:** XAdES-BES, enveloped; the `<ds:Signature>` is appended as the last child of the
+  document root, with a single reference over the whole document (`URI=""`).
+- **Canonicalization:** inclusive C14N 1.0 (`REC-xml-c14n-20010315`).
+- **Algorithms:** RSA-SHA256 signature, SHA-256 digests.
+- **Signed properties:** signing time, signing-certificate digest and data-object format.
+
+⚠️ This is the XAdES-**BES** level (no trusted timestamp). The produced signature is
+cryptographically valid and conforms to the XAdES standard; legal and regulatory validity
+depends on your use case and applicable rules.
+
 ### Discover tokens and certificates
 
 List all visible PKCS#11 tokens:
@@ -368,7 +403,7 @@ Feel free to open an issue on GitHub.
 
 ## Acknowledgements
 
-- [@nicolasgutierrezdev](https://github.com/nicolasgutierrezdev): provided reference for signature appearance inspired by signatures generated using the Uruguayan ID card (cédula).
+- [@nicolasgutierrezdev](https://github.com/nicolasgutierrezdev): provided reference for the signature appearance inspired by signatures generated using the Uruguayan ID card (cédula), and helped test the XAdES (XML) signing feature.
 
 ## License
 

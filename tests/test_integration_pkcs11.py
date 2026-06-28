@@ -27,7 +27,7 @@ from cryptography.x509.oid import NameOID
 PIN = "1234"
 SO_PIN = "0000"
 MI_ISSUER = "Autoridad Certificadora del Ministerio del Interior"
-TEST_CEDULA = "00000000"  # Fake Uruguayan ID number (7 digits + check digit)
+TEST_CEDULA = "DNI00000000"  # Real cédula subject serialNumber format: DNI + 8 digits
 
 _MODULE_CANDIDATES = (
     "/usr/lib/softhsm/libsofthsm2.so",

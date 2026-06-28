@@ -38,10 +38,12 @@ from cedula_uy_pdf_sign.constants import (
 from cedula_uy_pdf_sign.pin import PinSource, get_pin
 from cedula_uy_pdf_sign.pkcs11_utils import (
     find_token,
+    get_private_key,
     iter_cert_objects,
     load_pkcs11_lib,
     select_certificate,
 )
+from cedula_uy_pdf_sign.xml_sign import sign_xml
 
 app = typer.Typer(
     help=(
@@ -614,6 +616,80 @@ def sign_batch(
 
     except typer.Exit:
         raise
+    except Exception as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: sign-xml
+# ---------------------------------------------------------------------------
+
+@app.command("sign-xml")
+def sign_xml_cmd(
+    input_xml: Path = typer.Argument(..., exists=True, readable=True, help="Input XML."),
+    output_xml: Optional[Path] = typer.Argument(None, help="Signed output XML. Default: <input>_firmado.xml"),
+    pkcs11_lib: Pkcs11LibOpt = DEFAULT_PKCS11_LIB,
+    token_label: TokenLabelOpt = None,
+    cert_id: CertIdOpt = None,
+    pin_source: PinSourceOpt = PinSource.prompt,
+    pin_env_var: PinEnvVarOpt = None,
+    pin_fd: PinFdOpt = None,
+    timezone: TimezoneOpt = DEFAULT_TIMEZONE,
+    overwrite: OverwriteOpt = False,
+) -> None:
+    """Sign an XML document with a Uruguayan cédula (XAdES-BES, enveloped)."""
+    if output_xml is None:
+        output_xml = input_xml.with_stem(input_xml.stem + "_firmado")
+    try:
+        if input_xml.resolve() == output_xml.resolve():
+            raise RuntimeError(
+                "Input and output files are the same. "
+                "Specify a different output path."
+            )
+        if output_xml.exists() and not overwrite:
+            raise RuntimeError(
+                f"Output file already exists: {output_xml}\n"
+                "Use --overwrite to overwrite it."
+            )
+        ensure_output_parent(output_xml)
+
+        lib = load_pkcs11_lib(pkcs11_lib)
+        token = find_token(lib, token_label)
+        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
+
+        with token.open(user_pin=final_pin) as session:
+            key_id, cert = select_certificate(session, cert_id)
+
+            signer_name = get_common_name(cert.subject)
+            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
+            cert_serial = format(cert.serial_number, "X")
+            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
+            _print_signing_info(
+                token_label_display=token_label_display,
+                signer_name=signer_name,
+                issuer_name=issuer_name,
+                key_id=key_id,
+                cert_serial=cert_serial,
+                tsa_url=None,
+            )
+
+            priv = get_private_key(session, key_id)
+
+            def raw_signer(data: bytes) -> bytes:
+                return bytes(priv.sign(data, mechanism=pkcs11.Mechanism.SHA256_RSA_PKCS))
+
+            signing_time = datetime.now(ZoneInfo(timezone))
+            signed = sign_xml(
+                input_xml.read_bytes(),
+                cert=cert,
+                signer=raw_signer,
+                signing_time=signing_time,
+            )
+            output_xml.write_bytes(signed)
+
+        typer.secho(f"XML signed successfully: {output_xml}", fg=typer.colors.GREEN)
+
     except Exception as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)

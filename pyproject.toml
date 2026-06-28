@@ -29,6 +29,7 @@ classifiers = [
 ]
 dependencies = [
     "cryptography>=46.0.5",
+    "lxml>=5.0",
     "pyhanko[pkcs11]>=0.34.1",
     "python-pkcs11>=0.9.3",
     "reportlab>=4.4.10",
@@ -45,7 +46,7 @@ firmauy = "cedula_uy_pdf_sign.cli:app"
 where = ["src"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "signxml>=4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

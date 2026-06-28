@@ -77,6 +77,19 @@ def cert_is_expired(cert: x509.Certificate) -> bool:
     return datetime.now(timezone.utc) > not_after
 
 
+def get_private_key(session: pkcs11.Session, key_id: bytes) -> pkcs11.Object:
+    """Return the private-key object on the token matching the given ID."""
+    keys = list(session.get_objects({
+        pkcs11.Attribute.CLASS: pkcs11.ObjectClass.PRIVATE_KEY,
+        pkcs11.Attribute.ID: key_id,
+    }))
+    if not keys:
+        raise RuntimeError(
+            "No private key found on the token for the selected certificate."
+        )
+    return keys[0]
+
+
 def has_private_key(session: pkcs11.Session, key_id: bytes) -> bool:
     """Return True if a private key with the given ID exists on the token."""
     try:
