@@ -15,8 +15,6 @@ bytes it is verified against, so integrity already implies full coverage.
 """
 
 import asyncio
-import logging
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import IO, Optional, Union
 
@@ -26,24 +24,7 @@ from cryptography.hazmat.primitives.serialization import Encoding
 from pyhanko.sign.validation import async_validate_detached_cms
 from pyhanko_certvalidator import ValidationContext
 
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult
-
-# pyHanko logs a full traceback at WARNING when it cannot build a trust path. That is
-# an *expected* outcome here — no trust anchors (--no-trust / no cached CAs) or a chain
-# that does not reach a trusted root — which we already surface cleanly as
-# INDETERMINATE through the checks below. Keep that traceback out of the terminal.
-_PYHANKO_PATH_LOGGER = "pyhanko.sign.validation.generic_cms"
-
-
-@contextmanager
-def _muted_path_building_warnings():
-    logger = logging.getLogger(_PYHANKO_PATH_LOGGER)
-    prev_level = logger.level
-    logger.setLevel(logging.ERROR)
-    try:
-        yield
-    finally:
-        logger.setLevel(prev_level)
+from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
 
 
 def _to_asn1(certs):
@@ -117,7 +98,7 @@ def verify_cms(
             moment=at,
         )
 
-    with _muted_path_building_warnings():
+    with muted_path_building_warnings():
         status = asyncio.run(
             async_validate_detached_cms(input_data, signed_data, signer_validation_context=vc)
         )

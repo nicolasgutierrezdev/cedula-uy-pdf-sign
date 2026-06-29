@@ -22,7 +22,7 @@ from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.sign.validation import validate_pdf_signature
 from pyhanko_certvalidator import ValidationContext
 
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult
+from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
 
 
 def _to_asn1(certs):
@@ -91,7 +91,8 @@ def verify_pdf(
         sigs = list(reader.embedded_signatures)
         if not sigs:
             return [VerifyResult("INVALID", [Check("signature present", False, "no signatures in PDF")])]
-        for emb in sigs:
-            status = validate_pdf_signature(emb, vc)
-            results.append(_map_status(status, bool(trust_roots)))
+        with muted_path_building_warnings():
+            for emb in sigs:
+                status = validate_pdf_signature(emb, vc)
+                results.append(_map_status(status, bool(trust_roots)))
     return results
