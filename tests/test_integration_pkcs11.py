@@ -219,7 +219,7 @@ def test_sign_via_softhsm_produces_valid_signature(softhsm, sample_pdf, tmp_path
 
     output_pdf = tmp_path / "signed.pdf"
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(output_pdf),
+        "sign-pdf", str(sample_pdf), str(output_pdf),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--pin-source", "stdin",
         input_text=PIN + "\n",
@@ -261,7 +261,7 @@ def test_quiet_suppresses_identity_block(softhsm, sample_pdf, tmp_path):
     # Without --quiet, the identity block (signer name) is printed.
     out_verbose = tmp_path / "verbose.pdf"
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(out_verbose), *common, input_text=PIN + "\n",
+        "sign-pdf", str(sample_pdf), str(out_verbose), *common, input_text=PIN + "\n",
     )
     assert proc.returncode == 0, _output(proc)
     assert "PEREZ PEREZ JUAN" in _output(proc)
@@ -269,7 +269,7 @@ def test_quiet_suppresses_identity_block(softhsm, sample_pdf, tmp_path):
     # With --quiet, signing still succeeds but no identifying data is printed.
     out_quiet = tmp_path / "quiet.pdf"
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(out_quiet), *common, "--quiet", input_text=PIN + "\n",
+        "sign-pdf", str(sample_pdf), str(out_quiet), *common, "--quiet", input_text=PIN + "\n",
     )
     assert proc.returncode == 0, _output(proc)
     assert out_quiet.exists()
@@ -288,7 +288,7 @@ def test_verify_pdf_integrity_and_tamper(softhsm, sample_pdf, tmp_path):
 
     output_pdf = tmp_path / "signed.pdf"
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(output_pdf),
+        "sign-pdf", str(sample_pdf), str(output_pdf),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--pin-source", "stdin", input_text=PIN + "\n",
     )
@@ -327,7 +327,7 @@ def test_expired_certificate_is_rejected(softhsm, sample_pdf, tmp_path):
     softhsm.import_pair("test-cedula", key, cert, "01")
 
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(tmp_path / "out.pdf"),
+        "sign-pdf", str(sample_pdf), str(tmp_path / "out.pdf"),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--pin-source", "stdin",
         input_text=PIN + "\n",
@@ -345,7 +345,7 @@ def test_certificate_without_private_key_is_rejected(softhsm, sample_pdf, tmp_pa
     softhsm.import_cert_only("test-cedula", cert, "01")  # cert only, no key
 
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(tmp_path / "out.pdf"),
+        "sign-pdf", str(sample_pdf), str(tmp_path / "out.pdf"),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--pin-source", "stdin",
         input_text=PIN + "\n",
@@ -364,7 +364,7 @@ def test_multiple_tokens_require_label(softhsm, sample_pdf, tmp_path):
     softhsm.import_pair("token-a", key, cert, "01")
 
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(tmp_path / "out.pdf"),
+        "sign-pdf", str(sample_pdf), str(tmp_path / "out.pdf"),
         "--pkcs11-lib", softhsm.module,  # deliberately no --token-label
         "--pin-source", "stdin",
         input_text=PIN + "\n",
@@ -390,7 +390,7 @@ def test_identity_cert_is_preferred_over_generic(softhsm, sample_pdf, tmp_path):
     softhsm.import_pair("test-cedula", gen_key, gen_cert, "02")
 
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(tmp_path / "out.pdf"),
+        "sign-pdf", str(sample_pdf), str(tmp_path / "out.pdf"),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--pin-source", "stdin",
         input_text=PIN + "\n",
@@ -416,7 +416,7 @@ def test_cert_id_overrides_selection(softhsm, sample_pdf, tmp_path):
     softhsm.import_pair("test-cedula", gen_key, gen_cert, "02")
 
     proc = softhsm.firmauy(
-        "sign", str(sample_pdf), str(tmp_path / "out.pdf"),
+        "sign-pdf", str(sample_pdf), str(tmp_path / "out.pdf"),
         "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula",
         "--cert-id", "02", "--pin-source", "stdin",
         input_text=PIN + "\n",

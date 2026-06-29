@@ -75,7 +75,7 @@ def _format_error(exc: Exception) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared CLI option types (reused by `sign` and `sign-batch`)
+# Shared CLI option types (reused by `sign-pdf` and `sign-pdf-batch`)
 # ---------------------------------------------------------------------------
 
 Pkcs11LibOpt = Annotated[str, typer.Option("--pkcs11-lib", help="Path to the PKCS#11 module.")]
@@ -124,7 +124,7 @@ def _print_signing_info(
     tsa_url: Optional[str],
     quiet: bool = False,
 ) -> None:
-    """Print the aligned signer/token summary shared by `sign` and `sign-batch`.
+    """Print the aligned signer/token summary shared by `sign-pdf` and `sign-pdf-batch`.
 
     Skipped entirely when ``quiet`` is set, to keep identifying data (signer name,
     certificate serial, PKCS#11 ID) out of automation/CI logs.
@@ -351,11 +351,11 @@ def list_certs(
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: sign
+# Subcommand: sign-pdf
 # ---------------------------------------------------------------------------
 
-@app.command()
-def sign(
+@app.command("sign-pdf")
+def sign_pdf(
     input_pdf: Path = typer.Argument(..., exists=True, readable=True, help="Input PDF."),
     output_pdf: Optional[Path] = typer.Argument(None, help="Signed output PDF. Default: <input>_firmado.pdf"),
     pkcs11_lib: Pkcs11LibOpt = DEFAULT_PKCS11_LIB,
@@ -391,7 +391,7 @@ def sign(
             )
 
         # Fail-fast before prompting for the PIN. _sign_one_pdf re-checks this
-        # right before writing (the authoritative guard, also used by sign-batch);
+        # right before writing (the authoritative guard, also used by sign-pdf-batch);
         # here it only avoids asking for the PIN when we already know we'd refuse.
         if output_pdf.exists() and not overwrite:
             raise RuntimeError(
@@ -482,11 +482,11 @@ def sign(
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: sign-batch
+# Subcommand: sign-pdf-batch
 # ---------------------------------------------------------------------------
 
-@app.command("sign-batch")
-def sign_batch(
+@app.command("sign-pdf-batch")
+def sign_pdf_batch(
     input_pdfs: Optional[List[Path]] = typer.Argument(None, help="Input PDFs to sign."),
     output_dir: Path = typer.Option(..., "--output-dir", help="Directory where signed PDFs will be saved."),
     suffix: str = typer.Option("_firmado", "--suffix", help="Suffix appended to the base name of each output file."),

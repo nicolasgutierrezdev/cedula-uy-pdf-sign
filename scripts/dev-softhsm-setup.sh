@@ -92,7 +92,7 @@ than one token; always pass --token-label $LABEL.
 Run (in THIS shell, or re-export SOFTHSM2_CONF=$SOFTHSM2_CONF first):
 
   uv run firmauy list-certs --pkcs11-lib $MODULE --token-label $LABEL --pin-source stdin <<< $PIN
-  uv run firmauy sign input.pdf out.pdf --pkcs11-lib $MODULE --token-label $LABEL --pin-source stdin <<< $PIN
+  uv run firmauy sign-pdf input.pdf out.pdf --pkcs11-lib $MODULE --token-label $LABEL --pin-source stdin <<< $PIN
 
 Reset everything with:  rm -rf $WORK
 EOF

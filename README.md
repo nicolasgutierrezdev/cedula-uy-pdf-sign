@@ -18,7 +18,7 @@ Sign PDF and XML documents locally using a Uruguayan national ID card (cédula) 
 ```bash
 uv tool install cedula-uy-pdf-sign     # install
 firmauy list-tokens                    # verify the card is detected
-firmauy sign input.pdf                 # sign -> input_firmado.pdf (prompts for the PIN)
+firmauy sign-pdf input.pdf                 # sign -> input_firmado.pdf (prompts for the PIN)
 ```
 
 ## Overview
@@ -112,14 +112,14 @@ Use `--help` on any command to see all available options:
 
 ```bash
 firmauy --help
-firmauy sign --help
-firmauy sign-batch --help
+firmauy sign-pdf --help
+firmauy sign-pdf-batch --help
 ```
 
 ### Sign a single PDF
 
 ```bash
-firmauy sign input.pdf output_signed.pdf
+firmauy sign-pdf input.pdf output_signed.pdf
 ```
 
 The tool will prompt for the PKCS#11 PIN interactively.
@@ -133,7 +133,7 @@ If the output path is omitted, the signed file is saved as:
 ### Custom signature position
 
 ```bash
-firmauy sign input.pdf output_signed.pdf --x1 20 --y1 20 --x2 225 --y2 90
+firmauy sign-pdf input.pdf output_signed.pdf --x1 20 --y1 20 --x2 225 --y2 90
 ```
 
 ### Specify page
@@ -141,7 +141,7 @@ firmauy sign input.pdf output_signed.pdf --x1 20 --y1 20 --x2 225 --y2 90
 Pages are 0-indexed. Use `-1` to sign the last page.
 
 ```bash
-firmauy sign input.pdf output_signed.pdf --page 0
+firmauy sign-pdf input.pdf output_signed.pdf --page 0
 ```
 
 ### Non-interactive PIN
@@ -150,13 +150,13 @@ PIN can be supplied without an interactive prompt via `--pin-source`:
 
 ```bash
 # From an environment variable
-firmauy sign input.pdf output_signed.pdf --pin-source env --pin-env-var MY_PIN
+firmauy sign-pdf input.pdf output_signed.pdf --pin-source env --pin-env-var MY_PIN
 
 # From stdin
-echo "1234" | firmauy sign input.pdf output_signed.pdf --pin-source stdin
+echo "1234" | firmauy sign-pdf input.pdf output_signed.pdf --pin-source stdin
 
 # From a file descriptor
-firmauy sign input.pdf output_signed.pdf --pin-source fd --pin-fd 3
+firmauy sign-pdf input.pdf output_signed.pdf --pin-source fd --pin-fd 3
 ```
 
 Choose the source by security context (most to least contained):
@@ -175,7 +175,7 @@ Choose the source by security context (most to least contained):
 Embed a trusted timestamp from a Time Stamping Authority:
 
 ```bash
-firmauy sign input.pdf output_signed.pdf --tsa-url https://your-tsa/endpoint
+firmauy sign-pdf input.pdf output_signed.pdf --tsa-url https://your-tsa/endpoint
 ```
 
 TSA timestamping is **optional** and is **not required** for the standard Uruguayan cédula signing flow. It adds independent, trusted-time evidence to the signature and may involve an external network request.
@@ -186,16 +186,16 @@ Sign multiple PDFs with a single PKCS#11 session. The card PIN is entered only o
 
 ```bash
 # Explicit file list
-firmauy sign-batch file1.pdf file2.pdf file3.pdf --output-dir ~/signed
+firmauy sign-pdf-batch file1.pdf file2.pdf file3.pdf --output-dir ~/signed
 
 # Whole directory
-firmauy sign-batch --input-dir ~/docs --output-dir ~/signed
+firmauy sign-pdf-batch --input-dir ~/docs --output-dir ~/signed
 
 # Whole directory, recursively
-firmauy sign-batch --input-dir ~/docs --recursive --output-dir ~/signed
+firmauy sign-pdf-batch --input-dir ~/docs --recursive --output-dir ~/signed
 
 # Both can be combined
-firmauy sign-batch extra.pdf --input-dir ~/docs --output-dir ~/signed
+firmauy sign-pdf-batch extra.pdf --input-dir ~/docs --output-dir ~/signed
 ```
 
 Output files are named `<original-name>_firmado.pdf` by default.
@@ -203,12 +203,12 @@ Output files are named `<original-name>_firmado.pdf` by default.
 Change the suffix with `--suffix`:
 
 ```bash
-firmauy sign-batch --input-dir ~/docs --output-dir ~/signed --suffix _signed
+firmauy sign-pdf-batch --input-dir ~/docs --output-dir ~/signed --suffix _signed
 ```
 
 The output directory is created automatically if it does not exist.
 
-All options available for `sign` (position, PIN source, reason, TSA, etc.) are also available for `sign-batch`.
+All options available for `sign-pdf` (position, PIN source, reason, TSA, etc.) are also available for `sign-pdf-batch`.
 
 ⚠️ This tool produces cryptographic signatures. Legal validity depends on applicable regulations and use context.
 
@@ -251,7 +251,7 @@ depends on your use case and applicable rules.
 ### Sign multiple XML documents (batch)
 
 Sign many XML files with a single PKCS#11 session (the card PIN is entered only once). This
-mirrors `sign-batch` for PDFs and is convenient for bulk workflows such as electronic invoicing.
+mirrors `sign-pdf-batch` for PDFs and is convenient for bulk workflows such as electronic invoicing.
 
 ```bash
 # Explicit file list
@@ -422,7 +422,7 @@ All cryptographic operations are performed on the user's machine and/or the conn
 
 Note: Optional features such as timestamping (TSA) may involve external network requests, depending on user configuration.
 
-Note: the signing commands print a summary that includes identifying data (signer name, certificate issuer, certificate serial number and PKCS#11 key ID). This stays on your machine, but in batch or automated pipelines that output can end up in CI or centralized logs. Pass `--quiet` (`-q`) to the `sign`, `sign-batch`, `sign-xml` and `sign-xml-batch` commands to suppress that block while still signing.
+Note: the signing commands print a summary that includes identifying data (signer name, certificate issuer, certificate serial number and PKCS#11 key ID). This stays on your machine, but in batch or automated pipelines that output can end up in CI or centralized logs. Pass `--quiet` (`-q`) to the `sign-pdf`, `sign-pdf-batch`, `sign-xml` and `sign-xml-batch` commands to suppress that block while still signing.
 
 ## Signature verification
 
@@ -517,9 +517,9 @@ sudo pacman -S softhsm opensc openssl
 bash scripts/dev-softhsm-setup.sh
 ```
 
-The script prints ready-to-run `firmauy list-certs` / `firmauy sign` commands pointing at the SoftHSM module. The resulting PDF is a cryptographically valid signature, but it will **not** validate as a *cédula* signature on [firma.gub.uy](https://firma.gub.uy/) (the issuing CA is a local fake, by design). Reset everything with `rm -rf .softhsm`.
+The script prints ready-to-run `firmauy list-certs` / `firmauy sign-pdf` commands pointing at the SoftHSM module. The resulting PDF is a cryptographically valid signature, but it will **not** validate as a *cédula* signature on [firma.gub.uy](https://firma.gub.uy/) (the issuing CA is a local fake, by design). Reset everything with `rm -rf .softhsm`.
 
-The token persists under `.softhsm`, so this doubles as a normal development loop: run `firmauy` by hand as often as you like (signing test PDFs, trying signature positions with `--x1/--y1/...`, exercising `sign-batch`, reproducing a reported bug) while iterating on the code, without the card and without risking PIN lockout. The real card is then only needed for a final validation run and for middleware-specific behaviour.
+The token persists under `.softhsm`, so this doubles as a normal development loop: run `firmauy` by hand as often as you like (signing test PDFs, trying signature positions with `--x1/--y1/...`, exercising `sign-pdf-batch`, reproducing a reported bug) while iterating on the code, without the card and without risking PIN lockout. The real card is then only needed for a final validation run and for middleware-specific behaviour.
 
 The same setup powers a set of end-to-end integration tests (`tests/test_integration_pkcs11.py`) that exercise the real PKCS#11 path: signing plus cryptographic verification of the resulting PDF, and the selection/error branches that are unsafe to reproduce on the real card (expired certificate, certificate without a private key, multiple tokens, certificate scoring and `--cert-id` override). They are **skipped automatically** when SoftHSM2 / OpenSC / OpenSSL are not installed, so `uv run pytest` works either way.
 
