@@ -312,6 +312,25 @@ def test_verify_pdf_integrity_and_tamper(softhsm, sample_pdf, tmp_path):
     assert res_bad[0].indication == "INVALID"
 
 
+def test_list_certs_pem_outputs_parseable_certificate(softhsm, tmp_path):
+    key, cert = _write_cert(
+        tmp_path, "identity",
+        cn="PEREZ PEREZ JUAN", issuer_cn=MI_ISSUER, serial_number=TEST_CEDULA,
+    )
+    softhsm.init_token("test-cedula")
+    softhsm.import_pair("test-cedula", key, cert, "01")
+
+    # No --pin-source: certificates are public PKCS#11 objects, listed without login.
+    proc = softhsm.firmauy(
+        "list-certs", "--pkcs11-lib", softhsm.module, "--token-label", "test-cedula", "--pem",
+    )
+    assert proc.returncode == 0, _output(proc)
+    # --pem emits only PEM on stdout (no human listing), and it parses as a certificate.
+    assert "-----BEGIN CERTIFICATE-----" in proc.stdout
+    assert "Subject:" not in proc.stdout
+    x509.load_pem_x509_certificate(proc.stdout.encode())
+
+
 # ---------------------------------------------------------------------------
 # Error / selection branches that the real card cannot safely reproduce.
 # ---------------------------------------------------------------------------

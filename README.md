@@ -651,6 +651,21 @@ List certificates available on a token:
 firmauy list-certs
 ```
 
+No PIN is required: on the Uruguayan ID card (cédula) the certificates are public PKCS#11 objects,
+so they are read without login. (Pass `--pin-source` only if your token requires login to list them.)
+
+With `--pem` it dumps the certificate(s) as PEM on stdout instead of the human listing, so you
+can inspect or hand out your public certificate without producing a signature first:
+
+```bash
+firmauy list-certs --pem | openssl x509 -text -noout
+firmauy list-certs --pem > my-cert.pem
+```
+
+This is your **leaf** certificate. It is already embedded in every signature firmauy produces
+(so a verifier does not need it separately), and it is **not** a `--ca-file` trust anchor (that
+expects the national root, which is bundled).
+
 ### Diagnose your setup (doctor)
 
 `firmauy doctor` checks the local environment and reports `PASS` / `WARN` / `FAIL` for each

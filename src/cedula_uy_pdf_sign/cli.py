@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pkcs11
 import typer
 from cryptography import x509
+from cryptography.hazmat.primitives.serialization import Encoding
 from pyhanko import stamp
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.pdf_utils.layout import (
@@ -379,9 +380,10 @@ def list_certs(
         None, "--token-label",
         help="Exact PKCS#11 token label. If not provided, auto-detected.",
     ),
-    pin_source: PinSource = typer.Option(
-        PinSource.prompt, "--pin-source",
-        help="How to obtain the PIN: prompt (default), env, stdin, fd.",
+    pin_source: Optional[PinSource] = typer.Option(
+        None, "--pin-source",
+        help="Optional. Certificates are public and read without login by default; set a PIN "
+             "source (prompt, env, stdin, fd) only if your token requires login to list certs.",
     ),
     pin_env_var: Optional[str] = typer.Option(
         None, "--pin-env-var",
@@ -391,12 +393,17 @@ def list_certs(
         None, "--pin-fd",
         help="File descriptor holding the PIN (requires --pin-source fd).",
     ),
+    pem: bool = typer.Option(
+        False, "--pem",
+        help="Output the certificate(s) as PEM instead of the human listing (pipeable, e.g. to "
+             "'openssl x509 -text'). This is your leaf certificate, not a --ca-file trust anchor.",
+    ),
 ) -> None:
-    """List all certificates available on the token."""
+    """List all certificates available on the token (with --pem, dump their PEM instead)."""
     try:
         lib = load_pkcs11_lib(pkcs11_lib)
         token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
+        final_pin = None if pin_source is None else get_pin(pin_source, pin_env_var, pin_fd)
 
         with token.open(user_pin=final_pin) as session:
             found = False
@@ -409,6 +416,10 @@ def list_certs(
                     continue
 
                 found = True
+                if pem:
+                    typer.echo(cert.public_bytes(Encoding.PEM).decode().rstrip())
+                    continue
+
                 subject_cn = get_common_name(cert.subject)
                 issuer_cn = normalize_issuer_name(get_common_name(cert.issuer))
                 serial = format(cert.serial_number, "X")
