@@ -9,7 +9,7 @@ Sign and verify PDF (PAdES), XML (XAdES) and arbitrary files (CAdES/.p7s) locall
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carlosplanchon/cedula-uy-pdf-sign)
 
-> ⚠️ **Disclaimer**: This is an experimental, community-maintained project. It is **not affiliated with or endorsed by AGESIC**, is **not officially certified**, and **does not guarantee the legal validity** of the signatures it produces. Use at your own risk. See [Legal and compliance](#legal-and-compliance) for details.
+> ⚠️ **Disclaimer**: This tool performs **local, technical** signing and verification using open standards. It is experimental, community-maintained, **not affiliated with AGESIC**, **not officially certified**, and **does not guarantee legal validity**. For official validation, use the [official AGESIC validator](https://firma.gub.uy/); see [Legal and compliance](#legal-and-compliance) for details.
 
 ## Quick start
 
@@ -51,7 +51,7 @@ This tool targets **Linux** and is primarily developed and tested on **Arch Linu
 
 Other Linux distributions may work if the required smart card stack, PKCS#11 middleware, and Python environment are correctly configured.
 
-**Windows and macOS are not supported.**
+**Windows and macOS are not currently supported or tested.**
 
 ### Python
 
@@ -649,8 +649,8 @@ Same indication model (VALID / INDETERMINATE / INVALID) and exit codes as `verif
 on open standards (XMLDSig / XAdES, PAdES, CMS / CAdES, X.509 path validation per RFC 5280, and
 CRL/OCSP), anchored to the Uruguayan national root.
 
-- This is **not** the official validator and does **not** provide an official or legally binding
-  validation. For legal validity, use the official channels.
+- This is a **technical** check, **not** the official validator. For official validation, use
+  [firma.gub.uy](https://firma.gub.uy/) (see the disclaimer above).
 - On the decisive questions (integrity, cryptographic validity, chain to the national root,
   revocation) the result should agree with any standards-conformant validator, because it follows
   the same standards and the same PKI, not because it reproduces any specific tool.
