@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import Encoding
 from lxml import etree
 
+from cedula_uy_pdf_sign.cert_utils import name_fields
 from cedula_uy_pdf_sign.verify_common import Check, VerifyResult
 from cedula_uy_pdf_sign.xml_sign import (
     SIGNED_PROPS_TYPE,
@@ -160,7 +161,7 @@ def verify_xml(
     return VerifyResult(
         indication=indication,
         checks=checks,
-        signer=cert.subject.rfc4514_string(),
-        issuer=cert.issuer.rfc4514_string(),
+        signer={**name_fields(cert.subject), "certificate_serial": format(cert.serial_number, "X")},
+        issuer=name_fields(cert.issuer),
         trusted=trusted,
     )

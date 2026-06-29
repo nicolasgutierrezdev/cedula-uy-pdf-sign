@@ -1,7 +1,49 @@
+import datetime
+
+from asn1crypto import x509 as asn1x509
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from cedula_uy_pdf_sign.cert_utils import cert_not_after, get_common_name, normalize_issuer_name
+from cedula_uy_pdf_sign.cert_utils import (
+    cert_not_after,
+    get_common_name,
+    name_fields,
+    normalize_issuer_name,
+)
+
+
+class TestNameFields:
+    def test_cryptography_and_asn1crypto_produce_same_dict(self):
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, "PEREZ JUAN"),
+            x509.NameAttribute(NameOID.SERIAL_NUMBER, "DNI123"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Org"),
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "UY"),
+        ])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(key.public_key()).serial_number(1)
+            .not_valid_before(now).not_valid_after(now + datetime.timedelta(days=1))
+            .sign(key, hashes.SHA256())
+        )
+        expected = {"common_name": "PEREZ JUAN", "serial_number": "DNI123",
+                    "organization": "Org", "country": "UY"}
+        # cryptography Name (used by the XML verifier)
+        assert name_fields(cert.subject) == expected
+        # asn1crypto Name (used by the PDF/CMS verifiers) -> identical structure
+        asn1_cert = asn1x509.Certificate.load(cert.public_bytes(serialization.Encoding.DER))
+        assert name_fields(asn1_cert.subject) == expected
+
+    def test_missing_attributes_are_none(self):
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Only CN")])
+        assert name_fields(name) == {
+            "common_name": "Only CN", "serial_number": None,
+            "organization": None, "country": None,
+        }
 
 
 class TestGetCommonName:

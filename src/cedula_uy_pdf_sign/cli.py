@@ -2,7 +2,9 @@
 # Copyright 2026 Carlos Andrés Planchón Prestes
 # Licensed under the Apache License, Version 2.0
 
+import json
 import os
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -1254,12 +1256,20 @@ def _resolve_trust_anchors(ca_file: Optional[Path], no_trust: bool):
     return None, None
 
 
-def _print_verify_result(result, prefix: str = "") -> None:
+def _display_name(fields: dict, redact: bool = False) -> str:
+    """One-line human display of a structured signer/issuer name."""
+    if redact and (fields.get("common_name") or fields.get("serial_number")):
+        return "[REDACTED]"
+    parts = [p for p in (fields.get("common_name"), fields.get("serial_number")) if p]
+    return ", ".join(parts) if parts else "(unknown)"
+
+
+def _print_verify_result(result, prefix: str = "", redact: bool = False) -> None:
     """Print one verification result (signer + per-check breakdown)."""
     if prefix:
         typer.echo(prefix)
-    typer.echo(f"Signer:  {result.signer}")
-    typer.echo(f"Issuer:  {result.issuer}")
+    typer.echo(f"Signer:  {_display_name(result.signer, redact)}")
+    typer.echo(f"Issuer:  {_display_name(result.issuer)}")
     typer.echo("")
     for c in result.checks:
         mark = "PASS" if c.ok else "FAIL"
@@ -1274,6 +1284,83 @@ _INDICATION_COLOR = {
     "INVALID": typer.colors.RED,
 }
 _INDICATION_RANK = {"VALID": 0, "INDETERMINATE": 1, "INVALID": 2}
+
+# Public, versioned JSON contract for the verify commands (decoupled from the internal
+# VerifyResult dataclass, so it can be refactored without breaking consumers).
+_JSON_SCHEMA_VERSION = 1
+
+# Signer fields hidden by --redact (personal data). The issuer is a public CA and is kept.
+_REDACT_FIELDS = ("common_name", "serial_number", "certificate_serial")
+
+
+def _redact_signer(signer: dict) -> dict:
+    out = dict(signer)
+    for k in _REDACT_FIELDS:
+        if out.get(k):
+            out[k] = "[REDACTED]"
+    return out
+
+
+def _result_to_json_obj(result, redact: bool) -> dict:
+    return {
+        "indication": result.indication,
+        "signer": _redact_signer(result.signer) if redact else result.signer,
+        "issuer": result.issuer,
+        "trusted": result.trusted,
+        "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in result.checks],
+    }
+
+
+def _json_dumps(obj: dict, pretty: bool) -> str:
+    return json.dumps(obj, ensure_ascii=False, indent=2 if pretty else None)
+
+
+def _emit_verify(results: list, json_output: bool, pretty: bool = False, redact: bool = False) -> str:
+    """Emit verification results and return the overall indication (worst of all signatures).
+
+    With ``json_output`` a single JSON object is written to stdout; otherwise the human-readable
+    per-check breakdown is printed. ``pretty`` indents the JSON; ``redact`` hides the signer's
+    personal fields (issuer kept). Exit codes are decided by the caller from the returned
+    indication, so they are identical in every mode.
+
+        {"schema_version": 1, "indication": "...", "signatures": [
+            {"indication", "signer": {...}, "issuer": {...}, "trusted",
+             "checks": [{"name","ok","detail"}]}]}
+    """
+    overall = max((r.indication for r in results), key=lambda ind: _INDICATION_RANK[ind])
+    if json_output:
+        payload = {
+            "schema_version": _JSON_SCHEMA_VERSION,
+            "indication": overall,
+            "signatures": [_result_to_json_obj(r, redact) for r in results],
+        }
+        typer.echo(_json_dumps(payload, pretty))
+    else:
+        for i, result in enumerate(results, 1):
+            prefix = f"--- Signature {i} of {len(results)} ---" if len(results) > 1 else ""
+            _print_verify_result(result, prefix, redact)
+        typer.secho(f"Indication: {overall}", fg=_INDICATION_COLOR[overall], bold=True)
+    return overall
+
+
+def _emit_verify_error(exc: Exception, json_output: bool, pretty: bool = False) -> None:
+    """Report a hard error: a JSON ``{"error": ...}`` on stdout in --json mode (so stdout is
+    always parseable), or a coloured message on stderr otherwise."""
+    if json_output:
+        typer.echo(_json_dumps({"schema_version": _JSON_SCHEMA_VERSION, "error": _format_error(exc)}, pretty))
+    else:
+        typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
+
+
+_JSON_OPT_HELP = (
+    "Emit the result as a single JSON object on stdout (schema_version 1); "
+    "exit codes are unchanged."
+)
+_JSON_PRETTY_OPT_HELP = "Like --json but indented for humans (implies --json)."
+_REDACT_OPT_HELP = (
+    "Hide personal data (signer name, document and certificate serials) in the output, "
+    "e.g. for sharing logs or issues."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1296,6 +1383,9 @@ def verify_xml_cmd(
         False, "--check-revocation",
         help="Also check certificate revocation via CRL/OCSP (level 3). Requires network.",
     ),
+    json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
+    json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
+    redact: bool = typer.Option(False, "--redact", help=_REDACT_OPT_HELP),
 ) -> None:
     """Verify a signed XAdES XML: signature integrity, and (unless --no-trust) the
     certificate chain up to the Uruguayan national root.
@@ -1306,6 +1396,7 @@ def verify_xml_cmd(
     is self-asserted, so validity is evaluated at verification time.
     """
     try:
+        json_output = json_output or json_pretty
         if check_revocation and no_trust:
             raise RuntimeError("--check-revocation requires the certificate chain; remove --no-trust.")
 
@@ -1318,19 +1409,16 @@ def verify_xml_cmd(
             check_revocation=check_revocation,
         )
 
-        _print_verify_result(result)
-        typer.secho(f"Indication: {result.indication}",
-                    fg=_INDICATION_COLOR[result.indication], bold=True)
-
-        if result.indication == "INVALID":
+        overall = _emit_verify([result], json_output, pretty=json_pretty, redact=redact)
+        if overall == "INVALID":
             raise typer.Exit(code=1)
-        if result.indication == "INDETERMINATE":
+        if overall == "INDETERMINATE":
             raise typer.Exit(code=2)
 
     except typer.Exit:
         raise
     except Exception as exc:
-        typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
+        _emit_verify_error(exc, json_output, pretty=json_pretty)
         raise typer.Exit(code=1)
 
 
@@ -1354,6 +1442,9 @@ def verify_pdf_cmd(
         False, "--check-revocation",
         help="Also check certificate revocation via CRL/OCSP. Requires network.",
     ),
+    json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
+    json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
+    redact: bool = typer.Option(False, "--redact", help=_REDACT_OPT_HELP),
 ) -> None:
     """Verify the signatures in a PDF (PAdES): integrity, coverage, and (unless --no-trust)
     the certificate chain up to the Uruguayan national root.
@@ -1362,6 +1453,7 @@ def verify_pdf_cmd(
     signatures, the overall indication is the worst one. Exit: 0 VALID, 1 INVALID, 2 INDETERMINATE.
     """
     try:
+        json_output = json_output or json_pretty
         if check_revocation and no_trust:
             raise RuntimeError("--check-revocation requires the certificate chain; remove --no-trust.")
 
@@ -1374,13 +1466,7 @@ def verify_pdf_cmd(
             check_revocation=check_revocation,
         )
 
-        for i, result in enumerate(results, 1):
-            prefix = f"--- Signature {i} of {len(results)} ---" if len(results) > 1 else ""
-            _print_verify_result(result, prefix)
-
-        overall = max((r.indication for r in results), key=lambda ind: _INDICATION_RANK[ind])
-        typer.secho(f"Indication: {overall}", fg=_INDICATION_COLOR[overall], bold=True)
-
+        overall = _emit_verify(results, json_output, pretty=json_pretty, redact=redact)
         if overall == "INVALID":
             raise typer.Exit(code=1)
         if overall == "INDETERMINATE":
@@ -1389,7 +1475,7 @@ def verify_pdf_cmd(
     except typer.Exit:
         raise
     except Exception as exc:
-        typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
+        _emit_verify_error(exc, json_output, pretty=json_pretty)
         raise typer.Exit(code=1)
 
 
@@ -1414,6 +1500,9 @@ def verify_any_cmd(
         False, "--check-revocation",
         help="Also check certificate revocation via CRL/OCSP. Requires network.",
     ),
+    json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
+    json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
+    redact: bool = typer.Option(False, "--redact", help=_REDACT_OPT_HELP),
 ) -> None:
     """Verify a detached CAdES/.p7s signature over a file: integrity and (unless
     --no-trust) the certificate chain up to the Uruguayan national root.
@@ -1425,6 +1514,7 @@ def verify_any_cmd(
     if p7s_file is None:
         p7s_file = input_file.with_name(input_file.name + ".p7s")
     try:
+        json_output = json_output or json_pretty
         if check_revocation and no_trust:
             raise RuntimeError("--check-revocation requires the certificate chain; remove --no-trust.")
         if not p7s_file.exists():
@@ -1446,19 +1536,16 @@ def verify_any_cmd(
                 check_revocation=check_revocation,
             )
 
-        _print_verify_result(result)
-        typer.secho(f"Indication: {result.indication}",
-                    fg=_INDICATION_COLOR[result.indication], bold=True)
-
-        if result.indication == "INVALID":
+        overall = _emit_verify([result], json_output, pretty=json_pretty, redact=redact)
+        if overall == "INVALID":
             raise typer.Exit(code=1)
-        if result.indication == "INDETERMINATE":
+        if overall == "INDETERMINATE":
             raise typer.Exit(code=2)
 
     except typer.Exit:
         raise
     except Exception as exc:
-        typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
+        _emit_verify_error(exc, json_output, pretty=json_pretty)
         raise typer.Exit(code=1)
 
 
@@ -1499,4 +1586,106 @@ def fetch_cas_cmd(
         typer.echo("\n'firmauy verify-xml' will now validate the chain to the national root.")
     except Exception as exc:
         typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: doctor
+# ---------------------------------------------------------------------------
+
+_PCSCD_SOCKETS = ("/run/pcscd/pcscd.comm", "/var/run/pcscd/pcscd.comm")
+
+
+def _doctor_emit(checks: list, json_output: bool, pretty: bool = False) -> bool:
+    """Print the diagnostic checks; return True if there are no FAILs (WARN does not fail)."""
+    ok = all(c["status"] != "FAIL" for c in checks)
+    if json_output:
+        typer.echo(_json_dumps({"schema_version": _JSON_SCHEMA_VERSION, "ok": ok, "checks": checks}, pretty))
+        return ok
+    colors = {"PASS": typer.colors.GREEN, "WARN": typer.colors.YELLOW, "FAIL": typer.colors.RED}
+    for c in checks:
+        line = f"{c['status']:<4}  {c['name']}"
+        if c.get("detail"):
+            line += f": {c['detail']}"
+        typer.secho(line, fg=colors[c["status"]])
+        if c.get("fix"):
+            typer.secho(f"      → {c['fix']}", fg=typer.colors.CYAN)
+    typer.echo("")
+    if not ok:
+        typer.secho("Some checks failed; address the FAIL items above.", fg=typer.colors.RED, bold=True)
+    elif all(c["status"] == "PASS" for c in checks):
+        typer.secho("All checks passed.", fg=typer.colors.GREEN, bold=True)
+    else:
+        typer.secho("No blocking failures (see the warnings above).", fg=typer.colors.YELLOW, bold=True)
+    return ok
+
+
+@app.command("doctor")
+def doctor_cmd(
+    pkcs11_lib: str = typer.Option(DEFAULT_PKCS11_LIB, "--pkcs11-lib", help="Path to the PKCS#11 module to check."),
+    json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
+    json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
+) -> None:
+    """Diagnose the local environment for signing with the cédula.
+
+    Reports PASS / WARN / FAIL for each prerequisite, with a remediation hint. Needs no PIN.
+    Exit code: 0 if there are no FAILs, 1 otherwise (warnings do not fail)."""
+    import platform
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    checks: list = []
+
+    def add(status: str, name: str, detail: str = "", fix: Optional[str] = None) -> None:
+        checks.append({"status": status, "name": name, "detail": detail, "fix": fix})
+
+    try:
+        v = _pkg_version("cedula-uy-pdf-sign")
+    except PackageNotFoundError:
+        v = "unknown"
+    add("PASS", "firmauy", f"{v} (Python {platform.python_version()})")
+
+    lib = None
+    if Path(pkcs11_lib).exists():
+        add("PASS", "PKCS#11 module present", pkcs11_lib)
+        try:
+            lib = load_pkcs11_lib(pkcs11_lib)
+            add("PASS", "PKCS#11 module loads")
+        except Exception as exc:
+            add("FAIL", "PKCS#11 module loads", _format_error(exc),
+                fix="The module is present but could not be initialised; check the middleware install.")
+    else:
+        add("FAIL", "PKCS#11 module present", f"not found: {pkcs11_lib}",
+            fix="Install the middleware (Arch: yay -S cedula-uruguay-pkcs11), or pass --pkcs11-lib.")
+
+    if any(Path(s).exists() for s in _PCSCD_SOCKETS):
+        add("PASS", "pcscd running")
+    elif shutil.which("pcscd"):
+        add("WARN", "pcscd running", "installed but not running",
+            fix="Start it: sudo systemctl enable --now pcscd")
+    else:
+        add("WARN", "pcscd running", "not found",
+            fix="Install the smart-card stack: sudo pacman -S pcsclite ccid")
+
+    if lib is not None:
+        try:
+            tokens = list(lib.get_tokens())
+        except Exception:
+            tokens = []
+        if tokens:
+            label = (getattr(tokens[0], "label", "") or "").strip() or "<no label>"
+            extra = f" (+{len(tokens) - 1} more)" if len(tokens) > 1 else ""
+            add("PASS", "cédula token detected", f"{label}{extra}")
+        else:
+            add("WARN", "cédula token detected", "no card found",
+                fix="Insert the cédula and check the reader connection / pcscd.")
+
+    roots, intermediates = load_bundled_trust_anchors()
+    if roots and intermediates:
+        add("PASS", "bundled national CA certificates", "root + intermediate loaded")
+    else:
+        add("FAIL", "bundled national CA certificates", "not loadable",
+            fix="The package install looks broken; reinstall firmauy.")
+
+    if not _doctor_emit(checks, json_output or json_pretty, pretty=json_pretty):
         raise typer.Exit(code=1)

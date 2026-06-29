@@ -22,6 +22,7 @@ from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.sign.validation import validate_pdf_signature
 from pyhanko_certvalidator import ValidationContext
 
+from cedula_uy_pdf_sign.cert_utils import name_fields
 from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
 
 
@@ -47,8 +48,11 @@ def _map_status(status, trust_evaluated: bool) -> VerifyResult:
                             "" if trusted else "not trusted"))
 
     cert = getattr(status, "signing_cert", None)
-    signer = cert.subject.human_friendly if cert is not None else ""
-    issuer = cert.issuer.human_friendly if cert is not None else ""
+    if cert is not None:
+        signer = {**name_fields(cert.subject), "certificate_serial": format(cert.serial_number, "X")}
+        issuer = name_fields(cert.issuer)
+    else:
+        signer, issuer = {}, {}
 
     if not (intact and valid):
         indication = "INVALID"

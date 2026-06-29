@@ -378,6 +378,9 @@ firmauy verify-xml signed.xml --ca-file my-cas.pem
 
 # Also check certificate revocation via CRL/OCSP (needs network)
 firmauy verify-xml signed.xml --check-revocation
+
+# Machine-readable JSON output (for CI / other tools)
+firmauy verify-xml signed.xml --json
 ```
 
 Trust anchors are resolved in order: `--ca-file`, then the cache (`firmauy fetch-cas`), then the
@@ -391,6 +394,74 @@ It reports a per-check breakdown and an overall indication:
 - **INVALID** the signature is broken or the document was modified after signing.
 
 Exit codes: `0` VALID, `1` INVALID, `2` INDETERMINATE.
+
+**JSON output.** Pass `--json` to any verify command (`verify-xml` / `verify-pdf` / `verify-any`)
+to get a single JSON object on stdout (stable `schema_version`; exit codes unchanged), suitable
+for CI or integration. The `signatures` array has one entry per signature (PDFs can have several);
+`signer` and `issuer` are structured:
+
+```json
+{"schema_version": 1, "indication": "VALID", "signatures": [
+  {"indication": "VALID", "trusted": true,
+   "signer": {"common_name": "...", "serial_number": "DNI...", "organization": null,
+              "country": "UY", "certificate_serial": "..."},
+   "issuer": {"common_name": "Autoridad Certificadora del Ministerio del Interior",
+              "serial_number": null, "organization": "Ministerio del Interior", "country": "UY"},
+   "checks": [{"name": "...", "ok": true, "detail": ""}]}]}
+```
+
+On a hard error (e.g. malformed input), stdout is `{"schema_version": 1, "error": "..."}` and the
+exit code is `1`.
+
+Two modifiers (also valid on the human output):
+
+- `--json-pretty`: like `--json` but indented for reading / pasting into issues (implies `--json`).
+- `--redact`: hide personal data (the signer's `common_name`, `serial_number` / document number, and
+  `certificate_serial`) so a result can be shared in logs, issues or screenshots. The issuer (a public
+  CA) is kept.
+
+```bash
+firmauy verify-pdf signed.pdf --json-pretty            # readable JSON
+firmauy verify-pdf signed.pdf --json --redact          # safe to share
+firmauy verify-pdf signed.pdf --redact                 # human output, signer hidden
+```
+
+Example output of `firmauy verify-pdf signed.pdf --json-pretty` (names fictitious):
+
+```json
+{
+  "schema_version": 1,
+  "indication": "VALID",
+  "signatures": [
+    {
+      "indication": "VALID",
+      "signer": {
+        "common_name": "PEREZ PEREZ JUAN",
+        "serial_number": "DNI00000000",
+        "organization": null,
+        "country": "UY",
+        "certificate_serial": "7A91C3D40F2E1B5A6C8D9E0F1A2B3C4D"
+      },
+      "issuer": {
+        "common_name": "Autoridad Certificadora del Ministerio del Interior",
+        "serial_number": null,
+        "organization": "Ministerio del Interior",
+        "country": "UY"
+      },
+      "trusted": true,
+      "checks": [
+        {"name": "signature intact (covered bytes unmodified)", "ok": true, "detail": ""},
+        {"name": "signature cryptographically valid", "ok": true, "detail": ""},
+        {"name": "coverage (whole file)", "ok": true, "detail": "ENTIRE_FILE"},
+        {"name": "certificate chain to trusted root", "ok": true, "detail": ""}
+      ]
+    }
+  ]
+}
+```
+
+With `--redact`, the `signer` block above becomes `"common_name": "[REDACTED]"`,
+`"serial_number": "[REDACTED]"`, `"certificate_serial": "[REDACTED]"` (everything else unchanged).
 
 What it checks: the `SignedInfo` signature, each reference digest (so any change to the document
 is detected), the XAdES signing-certificate binding, and the certificate chain to a trusted root
@@ -545,6 +616,29 @@ List certificates available on a token:
 
 ```bash
 firmauy list-certs
+```
+
+### Diagnose your setup (doctor)
+
+`firmauy doctor` checks the local environment and reports `PASS` / `WARN` / `FAIL` for each
+prerequisite (PKCS#11 module, `pcscd`, card detection, bundled CAs), with a remediation hint
+for anything that is not OK. It needs no PIN. Exit code: `0` if there are no `FAIL`s, `1`
+otherwise (warnings do not fail).
+
+```bash
+firmauy doctor
+firmauy doctor --json        # machine-readable (schema_version 1)
+```
+
+Example:
+
+```text
+PASS  firmauy: 0.9.0 (Python 3.14.3)
+PASS  PKCS#11 module present: /usr/lib/pkcs11/libgclib.so
+PASS  pcscd running
+WARN  cédula token detected: no card found
+      → Insert the cédula and check the reader connection / pcscd.
+PASS  bundled national CA certificates: root + intermediate loaded
 ```
 
 ## Security considerations

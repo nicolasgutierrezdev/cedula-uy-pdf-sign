@@ -25,8 +25,10 @@ class Check:
 class VerifyResult:
     indication: str                 # VALID | INDETERMINATE | INVALID
     checks: list = field(default_factory=list)
-    signer: str = ""
-    issuer: str = ""
+    # Structured {common_name, serial_number, organization, country[, certificate_serial]};
+    # uniform across the XML/PDF/CMS verifiers (see cert_utils.name_fields).
+    signer: dict = field(default_factory=dict)
+    issuer: dict = field(default_factory=dict)
     trusted: bool = False
 
 
