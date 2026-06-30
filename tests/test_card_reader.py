@@ -12,6 +12,7 @@ from cedula_uy_pdf_sign.card_reader import (
     parse_bio,
     parse_doc_number,
     parse_mrz,
+    parse_photo,
     _fmt_date,
 )
 
@@ -98,3 +99,70 @@ def test_absent_fields_are_omitted():
     card = {"bio": {0x01: "PEREZ"}, "doc_num": None, "mrz": None}
     out = card_to_json_obj(card, redact=False)
     assert out == {"first_lastname": "PEREZ"}   # missing fields/doc/mrz omitted
+
+
+# --- photo (file 7004) parsing ----------------------------------------------
+
+def _ber_tlv(tag: bytes, value: bytes) -> list:
+    """Wrap value in BER-TLV with `tag`, using long-form length above 127 bytes (as the card does)."""
+    n = len(value)
+    if n < 0x80:
+        length = bytes([n])
+    elif n <= 0xFFFF:
+        length = bytes([0x82, (n >> 8) & 0xFF, n & 0xFF])
+    else:
+        length = bytes([0x83, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF])
+    return list(tag + length + value)
+
+
+# A synthetic JPEG: SOI ... EOI, >127 bytes so the wrapper uses a long-form length like the card.
+_JPEG = b"\xff\xd8\xff" + b"\x00" * 200 + b"\xff\xd9"
+
+
+def test_parse_photo_tlv_long_length():
+    data = _ber_tlv(b"\x3f\x01", _JPEG)        # 3F 01 82 LL LL <jpeg>, exactly like file 7004
+    assert data[2] == 0x82                     # long-form length, as on the real card
+    assert parse_photo(data) == _JPEG
+
+
+def test_parse_photo_tlv_short_length():
+    small = b"\xff\xd8\xff\x00\xff\xd9"        # < 128 bytes -> short-form length
+    data = _ber_tlv(b"\x3f\x01", small)
+    assert data[2] < 0x80
+    assert parse_photo(data) == small
+
+
+def test_parse_photo_fallback_locates_soi():
+    # An unexpected wrapper: the JPEG is still recovered via its SOI marker.
+    data = list(b"\x99\x88\x77" + _JPEG)
+    assert bytes(parse_photo(data)).startswith(b"\xff\xd8\xff")
+
+
+def test_parse_photo_none_without_jpeg():
+    assert parse_photo(list(b"\x3f\x01\x05hello")) is None
+
+
+class _FakeCard:
+    """Minimal PC/SC card serving one file via SELECT AID / SELECT FILE / READ BINARY, enough to
+    exercise the APDU read path (select_applet -> select_file -> read_file)."""
+
+    def __init__(self, file_bytes: bytes):
+        self.file = file_bytes
+
+    def transmit(self, apdu):
+        if apdu[:4] == [0x00, 0xA4, 0x04, 0x00]:          # SELECT AID
+            return [], 0x90, 0x00
+        if apdu[:4] == [0x00, 0xA4, 0x00, 0x00]:          # SELECT FILE -> FCI with tag 81 (size)
+            size = len(self.file)
+            return [0x6F, 0x04, 0x81, 0x02, (size >> 8) & 0xFF, size & 0xFF], 0x90, 0x00
+        if apdu[:2] == [0x00, 0xB0]:                       # READ BINARY
+            offset = ((apdu[2] & 0x7F) << 8) | apdu[3]
+            return list(self.file[offset:offset + apdu[4]]), 0x90, 0x00
+        raise AssertionError(f"unexpected APDU: {apdu}")
+
+
+def test_read_photo_end_to_end_with_fake_card():
+    from cedula_uy_pdf_sign.card_reader import read_photo
+
+    card = _FakeCard(bytes(_ber_tlv(b"\x3f\x01", _JPEG)))   # file 7004 as on the card
+    assert read_photo(card) == _JPEG                        # full path: applet -> file -> JPEG

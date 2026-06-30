@@ -34,6 +34,7 @@ from cedula_uy_pdf_sign.card_reader import (
     list_readers,
     open_reader,
     read_card,
+    read_photo,
 )
 from cedula_uy_pdf_sign.cert_utils import (
     cert_not_after,
@@ -2262,6 +2263,56 @@ def fetch_identity_cmd(
             typer.echo(_json_dumps(payload, json_pretty))
         else:
             typer.echo(format_card_human(card, redact=redact))
+    except Exception as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: fetch-photo
+# ---------------------------------------------------------------------------
+
+@app.command("fetch-photo")
+def fetch_photo_cmd(
+    output: Annotated[
+        Path, typer.Argument(help="Output JPEG path. Default: cedula_foto.jpg")
+    ] = Path("cedula_foto.jpg"),
+    reader_name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--reader",
+            help="PC/SC reader name (as shown by list-readers). "
+                 "Auto-detected when exactly one reader is present.",
+        ),
+    ] = None,
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="Allow overwriting an existing output file."
+    ),
+) -> None:
+    """Save the cardholder's photo (a JPEG) from the cédula to a file, via a PC/SC reader.
+
+    No PIN required: the photo (AIS file 7004) is public, like the biographical data. The image is
+    always written to the chosen file, never printed to the terminal.
+
+    Note: do not run while a PKCS#11 session (sign-* commands) is active on the same card; both go
+    through pcscd and may conflict.
+    """
+    try:
+        if output.exists() and not overwrite:
+            raise RuntimeError(
+                f"Output file already exists: {output}\nUse --overwrite to overwrite it."
+            )
+        conn = open_reader(reader_name)
+        try:
+            photo = read_photo(conn)
+        finally:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+        ensure_output_parent(output)
+        output.write_bytes(photo)
+        typer.secho(f"Photo saved: {output} ({len(photo)} bytes)", fg=typer.colors.GREEN)
     except Exception as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)

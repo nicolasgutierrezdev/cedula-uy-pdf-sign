@@ -37,7 +37,7 @@ The CLI tool is invoked as `firmauy` and supports:
 - configuring the visible signature position
 - selecting the signature page
 - discovering PC/SC readers, PKCS#11 tokens and certificates
-- reading the cardholder's public biographical data from the card, without a PIN (`fetch-identity`)
+- reading the cardholder's public biographical data and photo from the card, without a PIN (`fetch-identity` / `fetch-photo`)
 - diagnosing the local setup with `doctor`
 - non-interactive PIN sources for controlled automation workflows
 
@@ -789,6 +789,19 @@ JSON output (`--json-pretty`):
 
 Fields absent on a specific card (e.g. no second lastname) are omitted from the output. The `schema_version` field follows the same stable contract as the verify commands. Exit codes: `0` on success, `1` on any error (no reader, no card, APDU failure).
 
+### Read the cardholder's photo
+
+`firmauy fetch-photo` saves the cardholder's photo (a JPEG, AIS file `7004`) to a file. Like the biographical data, **no PIN is required**: the photo is public card data. Because it is a binary image it is always written to a file, **never printed to the terminal**.
+
+```bash
+firmauy fetch-photo                  # saves to cedula_foto.jpg
+firmauy fetch-photo my_photo.jpg     # explicit output path
+firmauy fetch-photo --reader "..."   # select a reader (see list-readers)
+firmauy fetch-photo --overwrite      # replace an existing output file
+```
+
+The same caveat as `fetch-identity` applies: do not run it while a `sign-*` command is active on the same card. The photo is the most sensitive field on the card, so treat the output file accordingly.
+
 ## Security considerations
 
 - Never pass the PIN directly as a command-line argument.
@@ -810,7 +823,7 @@ Note: Optional features such as timestamping (TSA) may involve external network 
 
 Note: the signing commands print a summary that includes identifying data (signer name, certificate issuer, certificate serial number and PKCS#11 key ID). This stays on your machine, but in batch or automated pipelines that output can end up in CI or centralized logs. Pass `--quiet` (`-q`) to the `sign-pdf`, `sign-pdf-batch`, `sign-xml`, `sign-xml-batch`, `sign-any` and `sign-any-batch` commands to suppress that block while still signing.
 
-Note: `fetch-identity` reads and prints the cardholder's biographical data (names, birth date, birthplace, document number, MRZ). It is public card data read without a PIN, but it is still personal: pass `--redact` to replace every field with `[REDACTED]` before sharing the output.
+Note: `fetch-identity` reads and prints the cardholder's biographical data (names, birth date, birthplace, document number, MRZ), and `fetch-photo` writes the cardholder's photo to a file. This is public card data read without a PIN, but it is still personal: pass `--redact` to `fetch-identity` to replace every field with `[REDACTED]` before sharing its output, and treat the photo file as sensitive.
 
 ## Signature verification
 

@@ -211,3 +211,6 @@ __marimo__/
 
 # Clipboard:
 clipboard/
+
+# Cardholder photo extracted by `firmauy fetch-photo` (personal data; never commit)
+cedula_foto.*

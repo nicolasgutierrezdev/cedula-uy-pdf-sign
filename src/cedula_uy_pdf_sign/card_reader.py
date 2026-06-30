@@ -117,6 +117,30 @@ def parse_mrz(data: list) -> Optional[list]:
     return [raw] if raw.strip() else None
 
 
+def parse_photo(data: list) -> Optional[bytes]:
+    """Extract the JPEG image from file 7004.
+
+    The file is BER-TLV: tag 3F01, a length (short form, or long form 81/82/83), then the JPEG
+    value. If the wrapper differs, fall back to locating the JPEG SOI marker (FF D8 FF) directly.
+    Returns the JPEG bytes, or None if no JPEG is present."""
+    b = bytes(data)
+    if b[:2] == b"\x3f\x01" and len(b) > 2:
+        first, i, length = b[2], 3, None
+        if first < 0x80:
+            length = first
+        elif first in (0x81, 0x82, 0x83):
+            nbytes = first & 0x0F
+            length = int.from_bytes(b[3:3 + nbytes], "big")
+            i = 3 + nbytes
+        if length is not None:
+            value = b[i:i + length]
+            if value[:3] == b"\xff\xd8\xff":
+                return value
+    # Fallback: an unexpected wrapper -- locate the JPEG by its start-of-image marker.
+    j = b.find(b"\xff\xd8\xff")
+    return b[j:] if j != -1 else None
+
+
 # ── High-level read ───────────────────────────────────────────────────────────
 
 def read_card(conn) -> dict:
@@ -134,6 +158,17 @@ def read_card(conn) -> dict:
     except RuntimeError:
         pass
     return {"bio": bio, "doc_num": doc_num, "mrz": mrz}
+
+
+def read_photo(conn) -> bytes:
+    """Select the applet and return the cardholder's JPEG photo (file 7004).
+
+    Raises RuntimeError if the file holds no JPEG. No PIN is required; the photo is public."""
+    select_applet(conn)
+    photo = parse_photo(read_file(conn, 0x7004))
+    if photo is None:
+        raise RuntimeError("No JPEG image found in file 7004.")
+    return photo
 
 
 # ── Reader discovery ──────────────────────────────────────────────────────────
