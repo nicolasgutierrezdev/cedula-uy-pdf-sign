@@ -93,7 +93,7 @@ def _version_callback(value: bool) -> None:
     if value:
         from importlib.metadata import PackageNotFoundError, version
         try:
-            v = version("cedula-uy-pdf-sign")
+            v = version("firmauy")
         except PackageNotFoundError:
             v = "unknown (not installed)"
         typer.echo(f"firmauy {v}")
@@ -2148,7 +2148,7 @@ def doctor_cmd(
         checks.append({"status": status, "name": name, "detail": detail, "fix": fix})
 
     try:
-        v = _pkg_version("cedula-uy-pdf-sign")
+        v = _pkg_version("firmauy")
     except PackageNotFoundError:
         v = "unknown"
     add("PASS", "firmauy", f"{v} (Python {platform.python_version()})")

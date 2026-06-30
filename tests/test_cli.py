@@ -37,7 +37,7 @@ runner = CliRunner()
 def test_version_flag_reports_package_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert f"firmauy {version('cedula-uy-pdf-sign')}" in result.output
+    assert f"firmauy {version('firmauy')}" in result.output
 
 
 def test_help_still_shows_app_description():

@@ -1,4 +1,4 @@
-# firmauy cookbook
+# FirmaUY cookbook
 
 Practical, copy-pasteable recipes for real workflows. The [README](../README.md) explains **what**
 each command does; this cookbook shows **how** to combine them in everyday use, automation and

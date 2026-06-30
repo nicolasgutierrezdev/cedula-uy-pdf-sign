@@ -1,11 +1,11 @@
-# cedula-uy-pdf-sign
+# FirmaUY
 
-![cedula-uy-pdf-sign banner](https://raw.githubusercontent.com/carlosplanchon/firmauy/main/assets/banner_firmauy.jpg)
+![FirmaUY banner](https://raw.githubusercontent.com/carlosplanchon/firmauy/main/assets/banner_firmauy.jpg)
 
 Sign and verify PDF (PAdES), XML (XAdES) and arbitrary files (CAdES/.p7s) locally using a Uruguayan national ID card (cédula) through PKCS#11. Standards-based signatures that verify with standard validators, with local chain validation to the Uruguayan national root.
 
-[![PyPI version](https://img.shields.io/pypi/v/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
-[![Python versions](https://img.shields.io/pypi/pyversions/cedula-uy-pdf-sign.svg)](https://pypi.org/project/cedula-uy-pdf-sign/)
+[![PyPI version](https://img.shields.io/pypi/v/firmauy.svg)](https://pypi.org/project/firmauy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/firmauy.svg)](https://pypi.org/project/firmauy/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carlosplanchon/firmauy)
 
@@ -16,7 +16,7 @@ Sign and verify PDF (PAdES), XML (XAdES) and arbitrary files (CAdES/.p7s) locall
 > Requires **Linux** with the Uruguayan cédula PKCS#11 middleware installed. The full smart-card setup is in [Requirements](#requirements) and [Setup on Arch Linux](#setup-on-arch-linux).
 
 ```bash
-uv tool install cedula-uy-pdf-sign     # install
+uv tool install firmauy                # install
 firmauy doctor                         # check the setup (pcscd, PKCS#11 module, card, CAs)
 firmauy list-tokens                    # confirm the card is detected
 firmauy sign-pdf input.pdf             # sign -> input_firmado.pdf (prompts for the PIN)
@@ -25,7 +25,7 @@ firmauy verify input_firmado.pdf       # verify (auto-detects format; offline ch
 
 ## Overview
 
-`cedula-uy-pdf-sign` provides a local, developer-oriented workflow for **signing and verifying** documents and files with a Uruguayan national ID card (cédula) using PKCS#11 middleware: PDF (PAdES), XML (XAdES) and detached CAdES/.p7s signatures for arbitrary files.
+FirmaUY provides a local, developer-oriented workflow for **signing and verifying** documents and files with a Uruguayan national ID card (cédula) using PKCS#11 middleware: PDF (PAdES), XML (XAdES) and detached CAdES/.p7s signatures for arbitrary files.
 
 The CLI tool is invoked as `firmauy` and supports:
 
@@ -121,7 +121,7 @@ Use version `7.5.0-2` or later; older versions could crash the process when a wr
 ### Installation with uv
 
 ```bash
-uv tool install cedula-uy-pdf-sign
+uv tool install firmauy
 ```
 
 ## Usage

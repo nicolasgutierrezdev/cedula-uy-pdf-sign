@@ -53,7 +53,7 @@ MICA_URLS = (
 
 # crt.sh sits behind Cloudflare, which drops a bare "firmauy" token but accepts a
 # descriptive bot-style User-Agent with a contact URL (which the official server allows too).
-_USER_AGENT = "firmauy (+https://pypi.org/project/cedula-uy-pdf-sign)"
+_USER_AGENT = "firmauy (+https://pypi.org/project/firmauy)"
 
 
 def cache_dir() -> Path:

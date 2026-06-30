@@ -69,7 +69,7 @@ curl -s https://www.uce.gub.uy/acrn/acrn.cer | openssl x509 -noout -fingerprint 
 # SHA256 Fingerprint=55:33:A0:40:...:8A  (same bytes, openssl prints them upper-case with colons)
 
 # Intermediate, from the Certificate Transparency log:
-curl -s -A "firmauy (+https://pypi.org/project/cedula-uy-pdf-sign)" "https://crt.sh/?d=29172099" \
+curl -s -A "firmauy (+https://pypi.org/project/firmauy)" "https://crt.sh/?d=29172099" \
   | openssl x509 -noout -fingerprint -sha256
 # SHA256 Fingerprint=A2:9C:AD:5C:...:BE
 ```
