@@ -1,6 +1,6 @@
 # cedula-uy-pdf-sign
 
-![cedula-uy-pdf-sign banner](https://raw.githubusercontent.com/carlosplanchon/cedula-uy-pdf-sign/main/assets/banner.jpg)
+![cedula-uy-pdf-sign banner](https://raw.githubusercontent.com/carlosplanchon/cedula-uy-pdf-sign/main/assets/banner_firmauy.jpg)
 
 Sign and verify PDF (PAdES), XML (XAdES) and arbitrary files (CAdES/.p7s) locally using a Uruguayan national ID card (cédula) through PKCS#11. Standards-based signatures that verify with standard validators, with local chain validation to the Uruguayan national root.
 
