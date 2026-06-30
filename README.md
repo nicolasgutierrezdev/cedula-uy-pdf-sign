@@ -521,7 +521,7 @@ Two modifiers (also valid on the human output):
 
 ```bash
 firmauy verify-pdf signed.pdf --json-pretty            # readable JSON
-firmauy verify-pdf signed.pdf --json --redact          # safe to share
+firmauy verify-pdf signed.pdf --json --redact          # safer to share
 firmauy verify-pdf signed.pdf --redact                 # human output, signer hidden
 ```
 
@@ -685,14 +685,15 @@ This is your **leaf** certificate. It is already embedded in every signature fir
 (so a verifier does not need it separately), and it is **not** a `--ca-file` trust anchor (that
 expects the national root, which is bundled).
 
-For automation, `--json` (or `--json-pretty`) emits the list as structured JSON (`schema_version` 1),
-handy to pick a certificate programmatically (its `id` feeds `--cert-id`). With `--pem` each entry
-also gets a `pem` field; with `--redact` the holder's personal data (subject common name, document
-number, certificate serial and PEM) is hidden for sharing, keeping the issuer:
+For automation, `--json` (or `--json-pretty`) emits the list as structured JSON (`schema_version` 1,
+with a top-level `redacted` flag), handy to pick a certificate programmatically (its `id` feeds
+`--cert-id`). With `--pem` each entry also gets a `pem` field; with `--redact` the holder's personal
+data (subject common name, document number, certificate serial and PEM) is hidden for sharing,
+keeping the issuer:
 
 ```bash
 firmauy list-certs --json-pretty                 # structured, readable
-firmauy list-certs --json --redact               # safe to share (no personal data)
+firmauy list-certs --json --redact               # safer to share (no personal data)
 ```
 
 ### Diagnose your setup (doctor)
@@ -818,7 +819,7 @@ With `--json` (or `--json-pretty`) a self-describing record is written to stdout
   "width": 240, "height": 320, "bytes": 10159, "sha256": "...", "base64": "/9j/4AAQ..." }
 ```
 
-`--redact` drops the image **and** every value that could fingerprint or correlate the cardholder (the `sha256` of a face photo is a stable per-card identifier, and the byte count leaks the same way), leaving only the non-identifying shape of the file (format, MIME type, dimensions) plus `redacted: true`. The sensitive keys are **omitted rather than stringified**, so the record stays well-typed and is safe to log or share:
+`--redact` drops the image **and** every value that could fingerprint or correlate the cardholder (the `sha256` of a face photo is a stable per-card identifier, and the byte count leaks the same way), leaving only the non-identifying shape of the file (format, MIME type, dimensions) plus `redacted: true`. The sensitive keys are **omitted rather than stringified**, so the record stays well-typed and is safer to log or share:
 
 ```json
 { "schema_version": 1, "redacted": true, "format": "jpeg", "mime": "image/jpeg", "width": 240, "height": 320 }
