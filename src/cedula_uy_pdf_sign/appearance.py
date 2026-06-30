@@ -80,7 +80,8 @@ def _faded_image(image_path, opacity: float):
     into the pixels, so it does not rely on the PDF renderer honouring image alpha)."""
     from PIL import Image
 
-    img = Image.open(image_path).convert("RGBA")
+    with Image.open(image_path) as src:   # context manager: don't leak the file handle
+        img = src.convert("RGBA")
     white = Image.new("RGBA", img.size, (255, 255, 255, 255))
     on_white = Image.alpha_composite(white, img)          # resolve transparency over white
     return Image.blend(white, on_white, opacity).convert("RGB")
