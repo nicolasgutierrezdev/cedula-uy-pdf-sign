@@ -259,6 +259,15 @@ def _validate_image(image) -> None:
         raise RuntimeError(f"--image '{image}' is not a valid image: {exc}")
 
 
+def _validate_timezone(tz: str) -> None:
+    """Fail early (in pre-flight, before the PIN/card) on an invalid --timezone, instead of
+    after the PIN with a cryptic ZoneInfoNotFoundError (and once, not once per file in a batch)."""
+    try:
+        ZoneInfo(tz)
+    except Exception as exc:
+        raise typer.BadParameter(f"--timezone '{tz}' is not a valid IANA timezone ({exc}).")
+
+
 def _batch_output(p: Path, input_dir: Optional[Path], output_dir: Path, ext: str, suffix: str) -> Path:
     """Output path for a batch input file. A file from ``--input-dir`` keeps its sub-directory
     structure under ``output_dir`` (so equally-named files in different sub-folders never collide
@@ -372,8 +381,18 @@ def _sign_one_pdf(
                 ),
             )
 
-            with output_pdf.open("wb") as outf:
-                pdf_signer.sign_pdf(writer, output=outf)
+            # Sign into a sibling temp file, then atomically move it into place. A failure
+            # mid-signing (e.g. the card is pulled) then never leaves a partial/corrupt file at
+            # output_pdf, and with --overwrite it never destroys the previous good output either.
+            # (The XML/CMS paths are already safe: they build the bytes fully, then write.)
+            tmp_out = output_pdf.with_name(output_pdf.name + ".part")
+            try:
+                with tmp_out.open("wb") as outf:
+                    pdf_signer.sign_pdf(writer, output=outf)
+                os.replace(tmp_out, output_pdf)
+            except BaseException:
+                tmp_out.unlink(missing_ok=True)
+                raise
 
         finally:
             if appearance_path:
@@ -599,6 +618,7 @@ def sign_pdf(
         # --- Pre-flight checks ---
         _warn_image_opacity_unused(image, image_mode, image_opacity)
         _validate_image(image)
+        _validate_timezone(timezone)
         timestamper = _build_timestamper(
             tsa_url=tsa_url,
             tsa_user=tsa_user,
@@ -757,6 +777,7 @@ def sign_pdf_batch(
     try:
         _warn_image_opacity_unused(image, image_mode, image_opacity)
         _validate_image(image)
+        _validate_timezone(timezone)
         timestamper = _build_timestamper(
             tsa_url=tsa_url,
             tsa_user=tsa_user,
@@ -1033,6 +1054,7 @@ def sign_xml_cmd(
                 "Use --overwrite to overwrite it."
             )
         ensure_output_parent(output_xml)
+        _validate_timezone(timezone)
 
         timestamper = _build_timestamper(
             tsa_url=tsa_url, tsa_user=tsa_user, tsa_pass_env=tsa_pass_env, tsa_header=tsa_header,
@@ -1114,6 +1136,7 @@ def sign_xml_batch(
 ) -> None:
     """Sign multiple XML documents with a single PKCS#11 session (XAdES-BES, or XAdES-T with --tsa-url)."""
     try:
+        _validate_timezone(timezone)
         timestamper = _build_timestamper(
             tsa_url=tsa_url, tsa_user=tsa_user, tsa_pass_env=tsa_pass_env, tsa_header=tsa_header,
         )

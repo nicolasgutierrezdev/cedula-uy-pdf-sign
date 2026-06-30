@@ -5,10 +5,12 @@
 
 The package bundles the **public** national CA certificates (the AGESIC root + the Ministerio
 del Interior intermediate) under ``data/``, so chain validation works offline out of the box;
-see ``data/PROVENANCE.md``. Every certificate (bundled, cached, downloaded, or user-supplied
-via ``--from-file`` / ``--ca-file``) is matched against a pinned SHA-256 fingerprint (and the
-intermediate is checked to be signed by the root), so the origin of the bytes never matters: a
-wrong or tampered certificate is rejected.
+see ``data/PROVENANCE.md``. Every certificate on the *national-CA path* (bundled, cached,
+downloaded, or seeded via ``--from-file``) is matched against a pinned SHA-256 fingerprint (and
+the intermediate is checked to be signed by the root), so the origin of those bytes never
+matters: a wrong or tampered certificate is rejected. (``--ca-file`` is the separate case where
+the user supplies their *own* trust anchors for verification; those are intentionally not
+pinned, since the whole point is to trust a set the user chose.)
 
 ``fetch_cas()`` refreshes a per-user cache from public sources (with a Certificate Transparency
 fallback, since the MI's own repository ``ca.minterior.gub.uy`` has been decommissioned and now

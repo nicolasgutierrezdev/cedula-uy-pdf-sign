@@ -132,8 +132,15 @@ def verify_xml(
         return VerifyResult("INVALID", [Check("signature present", False, "no <ds:Signature>")])
 
     si = sig.find(_ds("SignedInfo"))
+    sv_el = sig.find(_ds("SignatureValue"))
+    if si is None or sv_el is None or not (sv_el.text or "").strip():
+        missing = "SignedInfo" if si is None else "SignatureValue"
+        return VerifyResult("INVALID", [Check("signature structure", False, f"malformed: no <ds:{missing}>")])
     refs = si.findall(_ds("Reference"))
-    cert, cert_der = _leaf_cert(root)
+    try:
+        cert, cert_der = _leaf_cert(root)
+    except ValueError as exc:
+        return VerifyResult("INVALID", [Check("signing certificate", False, str(exc))])
 
     ref_doc = next((r for r in refs if (r.get("URI") or "") == "" and r.get("Type") is None), None)
     ref_props = next((r for r in refs if r.get("Type") == SIGNED_PROPS_TYPE), None)
@@ -155,9 +162,10 @@ def verify_xml(
     else:
         checks.append(Check("signed-properties digest", False, "missing SignedProperties reference"))
 
-    # 3. SignedInfo signature (RSA-SHA256)
-    sigval = base64.b64decode(re.sub(r"\s+", "", sig.find(_ds("SignatureValue")).text))
+    # 3. SignedInfo signature (RSA-SHA256). The b64decode is inside the try so a malformed
+    # SignatureValue is a failed check (INVALID), not an uncaught exception.
     try:
+        sigval = base64.b64decode(re.sub(r"\s+", "", sv_el.text))
         cert.public_key().verify(sigval, _c14n(si), padding.PKCS1v15(), hashes.SHA256())
         checks.append(Check("SignedInfo signature (RSA-SHA256)", True))
     except Exception as exc:

@@ -390,3 +390,104 @@ def test_verify_original_ignored_for_non_cms_warns(tmp_path):
     result = runner.invoke(app, ["verify", str(xml), "--original", "whatever.txt", "--no-trust"])
     assert "--original is ignored" in result.output   # warned, not silently dropped
     assert result.exit_code == 1                       # still verified the XML (no signature)
+
+
+# --- --timezone pre-flight validation ---------------------------------------
+
+def test_validate_timezone_accepts_valid_rejects_invalid():
+    import typer
+
+    from cedula_uy_pdf_sign.cli import _validate_timezone
+
+    _validate_timezone("America/Montevideo")   # valid -> no raise
+    _validate_timezone("UTC")                   # valid -> no raise
+    with pytest.raises(typer.BadParameter, match="not a valid IANA timezone"):
+        _validate_timezone("Marte/Olympus_Mons")
+
+
+def test_sign_pdf_invalid_timezone_fails_before_the_card(tmp_path):
+    # A bad --timezone is caught in pre-flight, so it never reaches the PIN / card and never
+    # wastes a card retry-limit attempt on a typo.
+    pdf = tmp_path / "in.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    result = runner.invoke(app, ["sign-pdf", str(pdf), "--timezone", "Marte/Olympus_Mons"])
+    assert result.exit_code == 1
+    assert "is not a valid IANA timezone" in result.output
+
+
+# --- sign-pdf atomic output (no partial file on a mid-signing failure) -------
+
+def _valid_pdf_bytes() -> bytes:
+    import io
+
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(300, 300))
+    c.drawString(50, 150, "hi")
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _software_signer() -> SimpleSigner:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TEST SIGNER")])
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(1)
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .sign(key, hashes.SHA256())
+    )
+    der = cert.public_bytes(serialization.Encoding.DER)
+    return SimpleSigner(
+        signing_cert=asn1x509.Certificate.load(der),
+        signing_key=asn1keys.PrivateKeyInfo.load(key.private_bytes(
+            serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption())),
+        cert_registry=SimpleCertificateStore(),
+    )
+
+
+def _run_failing_sign(tmp_path, monkeypatch, out, *, overwrite):
+    from pyhanko.sign import signers
+
+    from cedula_uy_pdf_sign import cli
+
+    inp = tmp_path / "in.pdf"
+    inp.write_bytes(_valid_pdf_bytes())
+
+    # Simulate a card failure mid-signing, *after* pyHanko began writing to the output stream.
+    def boom(self, writer, output=None, **kw):
+        if output is not None:
+            output.write(b"%PDF-1.4 partial-incremental-update...")
+        raise RuntimeError("card removed mid-signing (simulated)")
+
+    monkeypatch.setattr(signers.PdfSigner, "sign_pdf", boom)
+    meta = signers.PdfSignatureMetadata(field_name="Sig1", md_algorithm=None)
+    with pytest.raises(RuntimeError, match="card removed"):
+        cli._sign_one_pdf(
+            input_pdf=inp, output_pdf=out, pkcs11_signer=_software_signer(),
+            signer_name="X", issuer_name="Y", cert_serial="1", timestamper=None,
+            meta=meta, page=-1, x1=20, y1=20, x2=225, y2=90,
+            timezone="America/Montevideo", field_name="Sig1",
+            force=False, overwrite=overwrite,
+        )
+
+
+def test_sign_pdf_failure_leaves_no_partial_output(tmp_path, monkeypatch):
+    out = tmp_path / "out_firmado.pdf"
+    _run_failing_sign(tmp_path, monkeypatch, out, overwrite=False)
+    assert not out.exists()                        # no partial/corrupt file at the destination
+    assert list(tmp_path.glob("*.part")) == []     # the temp file was cleaned up
+
+
+def test_sign_pdf_overwrite_failure_keeps_previous_output(tmp_path, monkeypatch):
+    # With --overwrite, a failed re-sign must not destroy the previously good output.
+    out = tmp_path / "out_firmado.pdf"
+    out.write_bytes(b"PREVIOUS GOOD OUTPUT")
+    _run_failing_sign(tmp_path, monkeypatch, out, overwrite=True)
+    assert out.read_bytes() == b"PREVIOUS GOOD OUTPUT"
+    assert list(tmp_path.glob("*.part")) == []
