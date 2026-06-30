@@ -591,7 +591,8 @@ def list_certs(
             if redact:
                 records = [_redact_cert_record(r) for r in records]
             typer.echo(_json_dumps(
-                {"schema_version": _JSON_SCHEMA_VERSION, "certificates": records}, json_pretty))
+                {"schema_version": _JSON_SCHEMA_VERSION, "redacted": redact, "certificates": records},
+                json_pretty))
             return
 
         if pem:
@@ -1682,7 +1683,7 @@ def _emit_verify(results: list, json_output: bool, pretty: bool = False, redact:
     personal fields (issuer kept). Exit codes are decided by the caller from the returned
     indication, so they are identical in every mode.
 
-        {"schema_version": 1, "indication": "...", "signatures": [
+        {"schema_version": 1, "redacted": false, "indication": "...", "signatures": [
             {"indication", "signer": {...}, "issuer": {...}, "trusted",
              "checks": [{"name","ok","detail"}]}]}
     """
@@ -1690,6 +1691,7 @@ def _emit_verify(results: list, json_output: bool, pretty: bool = False, redact:
     if json_output:
         payload = {
             "schema_version": _JSON_SCHEMA_VERSION,
+            "redacted": redact,
             "indication": overall,
             "signatures": [_result_to_json_obj(r, redact) for r in results],
         }
@@ -2260,6 +2262,7 @@ def fetch_identity_cmd(
         if json_output:
             payload = {
                 "schema_version": _JSON_SCHEMA_VERSION,
+                "redacted": redact,
                 **card_to_json_obj(card, redact=redact),
             }
             typer.echo(_json_dumps(payload, json_pretty))
@@ -2349,6 +2352,7 @@ def fetch_photo_cmd(
         if json_output:
             payload = {
                 "schema_version": _JSON_SCHEMA_VERSION,
+                "redacted": redact,
                 **photo_to_json_obj(photo, redact=redact),
             }
             typer.echo(_json_dumps(payload, json_pretty))

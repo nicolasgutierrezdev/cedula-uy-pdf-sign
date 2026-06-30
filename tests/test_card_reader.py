@@ -202,14 +202,14 @@ def test_photo_to_json_obj_full_round_trips_image():
     assert obj["bytes"] == len(jpeg)
     assert obj["sha256"] == hashlib.sha256(jpeg).hexdigest()
     assert base64.b64decode(obj["base64"]) == jpeg          # decodes back to the exact image
+    assert "redacted" not in obj                            # the flag is added by the CLI, not here
 
 
 def test_photo_to_json_obj_redacted_drops_image_and_correlators():
     jpeg = _jpeg_with_dims(240, 320)
     obj = photo_to_json_obj(jpeg, redact=True)
-    assert obj["base64"] == "[REDACTED]"
-    # A photo's SHA-256 (and byte count) is a stable per-card fingerprint: it must not survive redaction.
-    assert "sha256" not in obj and "bytes" not in obj
-    assert obj["width"] == 240 and obj["height"] == 320     # non-identifying shape is kept
+    # The image and every per-card fingerprint are dropped entirely (omitted, not stringified), so the
+    # record stays well-typed. Only the non-identifying shape (format, mime, dimensions) survives.
+    assert obj == {"format": "jpeg", "mime": "image/jpeg", "width": 240, "height": 320}
     blob = json.dumps(obj)
     assert base64.b64encode(jpeg).decode() not in blob      # the image never appears, in any form

@@ -60,6 +60,7 @@ def test_emit_verify_json_schema(capsys):
     assert overall == "VALID"
     out = json.loads(capsys.readouterr().out)
     assert out["schema_version"] == 1 and out["indication"] == "VALID"
+    assert out["redacted"] is False                    # top-level redaction flag (always present)
     assert len(out["signatures"]) == 1
     sig = out["signatures"][0]
     assert sig["signer"]["common_name"] == "CARLOS" and sig["signer"]["serial_number"] == "DNI1"
@@ -74,7 +75,9 @@ def test_emit_verify_redact_hides_signer_keeps_issuer(capsys):
         issuer={"common_name": "AC MI"}, trusted=True,
     )
     _emit_verify([r], json_output=True, redact=True)
-    sig = json.loads(capsys.readouterr().out)["signatures"][0]
+    out = json.loads(capsys.readouterr().out)
+    assert out["redacted"] is True                     # top-level redaction flag
+    sig = out["signatures"][0]
     assert sig["signer"]["common_name"] == "[REDACTED]"
     assert sig["signer"]["serial_number"] == "[REDACTED]"
     assert sig["signer"]["certificate_serial"] == "[REDACTED]"
@@ -747,6 +750,7 @@ def test_fetch_photo_json_emits_record_to_stdout(monkeypatch, capsys):
 
     obj = json.loads(capsys.readouterr().out)
     assert obj["schema_version"] == 1
+    assert obj["redacted"] is False                     # flag present (and false) on the full record
     assert obj["format"] == "jpeg" and obj["mime"] == "image/jpeg"
     assert obj["bytes"] == len(_JPEG)
     assert base64.b64decode(obj["base64"]) == _JPEG     # the record carries the exact image
@@ -764,8 +768,9 @@ def test_fetch_photo_json_redact_drops_image_and_hash(monkeypatch, capsys):
                         json_output=True, json_pretty=False, redact=True)
 
     obj = json.loads(capsys.readouterr().out)
-    assert obj["base64"] == "[REDACTED]"
-    assert "sha256" not in obj and "bytes" not in obj   # no per-card fingerprint leaks
+    assert obj["redacted"] is True                      # top-level flag signals the redaction
+    assert "base64" not in obj and "sha256" not in obj and "bytes" not in obj   # dropped, not stringified
+    assert obj["format"] == "jpeg"                      # non-identifying shape still present
 
 
 def test_fetch_photo_json_rejects_file_path(monkeypatch, capsys):
@@ -787,3 +792,21 @@ def test_fetch_photo_json_rejects_file_path(monkeypatch, capsys):
 
     assert opened["n"] == 0
     assert "cannot be combined" in capsys.readouterr().err.lower()
+
+
+# --- fetch-identity carries the same top-level redacted flag -------------------------------------
+
+def test_fetch_identity_json_carries_redacted_flag(monkeypatch, capsys):
+    from cedula_uy_pdf_sign import cli
+
+    card = {"bio": {0x01: "PEREZ"}, "doc_num": None, "mrz": None}
+    monkeypatch.setattr(cli, "open_reader", lambda name=None: _FakeConn())
+    monkeypatch.setattr(cli, "read_card", lambda conn: card)
+
+    cli.fetch_identity_cmd(reader_name=None, json_output=True, json_pretty=False, redact=False)
+    full = json.loads(capsys.readouterr().out)
+    assert full["redacted"] is False and full["first_lastname"] == "PEREZ"
+
+    cli.fetch_identity_cmd(reader_name=None, json_output=True, json_pretty=False, redact=True)
+    red = json.loads(capsys.readouterr().out)
+    assert red["redacted"] is True and red["first_lastname"] == "[REDACTED]"

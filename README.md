@@ -498,7 +498,7 @@ for CI or integration. The `signatures` array has one entry per signature (PDFs 
 `signer` and `issuer` are structured:
 
 ```json
-{"schema_version": 1, "indication": "VALID", "signatures": [
+{"schema_version": 1, "redacted": false, "indication": "VALID", "signatures": [
   {"indication": "VALID", "trusted": true,
    "signer": {"common_name": "...", "serial_number": "DNI...", "organization": null,
               "country": "UY", "certificate_serial": "..."},
@@ -530,6 +530,7 @@ Example output of `firmauy verify-pdf signed.pdf --json-pretty` (names fictitiou
 ```json
 {
   "schema_version": 1,
+  "redacted": false,
   "indication": "VALID",
   "signatures": [
     {
@@ -559,9 +560,13 @@ Example output of `firmauy verify-pdf signed.pdf --json-pretty` (names fictitiou
 }
 ```
 
-With `--redact`, the `signer` block above becomes `"common_name": "[REDACTED]"`,
-`"serial_number": "[REDACTED]"`, `"certificate_serial": "[REDACTED]"`, and each check `detail`
-becomes `"[REDACTED]"`. The issuer and the check names/results are unchanged.
+With `--redact`, the top-level `"redacted"` becomes `true`, the `signer` block above becomes
+`"common_name": "[REDACTED]"`, `"serial_number": "[REDACTED]"`, `"certificate_serial": "[REDACTED]"`,
+and each check `detail` becomes `"[REDACTED]"`. The issuer and the check names/results are unchanged.
+The top-level `"redacted"` flag is present (as `false` by default) on the result record of every
+command that supports `--redact` (`verify-*`, `list-certs`, `fetch-identity`, `fetch-photo`), so a
+consumer can detect a redacted record uniformly. The verify hard-error envelope
+(`{"schema_version": 1, "error": "..."}`) carries no data, so it has no `redacted` field.
 
 What it checks: the `SignedInfo` signature, each reference digest (so any change to the document
 is detected), the XAdES signing-certificate binding, and the certificate chain to a trusted root
@@ -770,6 +775,7 @@ JSON output (`--json-pretty`):
 ```json
 {
   "schema_version": 1,
+  "redacted": false,
   "first_lastname": "EJEMPLO",
   "second_lastname": "FICTICIO",
   "given_names": "NOMBRE EJEMPLO",
@@ -805,17 +811,17 @@ firmauy fetch-photo --json-pretty        # ...indented for humans (implies --jso
 firmauy fetch-photo --json --redact      # ...without the image or any correlatable value
 ```
 
-With `--json` (or `--json-pretty`) a self-describing record is written to stdout instead of the raw image: `format`, `mime`, pixel `width`/`height`, `bytes`, the `sha256` and the `base64`-encoded image, alongside the usual `schema_version`. It pairs with `fetch-identity --json` and embeds anywhere a data URI does (`data:image/jpeg;base64,...`).
+With `--json` (or `--json-pretty`) a self-describing record is written to stdout instead of the raw image: `format`, `mime`, pixel `width`/`height`, `bytes`, the `sha256` and the `base64`-encoded image, alongside `schema_version` and the top-level `redacted` flag. It pairs with `fetch-identity --json` and embeds anywhere a data URI does (`data:image/jpeg;base64,...`).
 
 ```json
-{ "schema_version": 1, "format": "jpeg", "mime": "image/jpeg",
+{ "schema_version": 1, "redacted": false, "format": "jpeg", "mime": "image/jpeg",
   "width": 240, "height": 320, "bytes": 10159, "sha256": "...", "base64": "/9j/4AAQ..." }
 ```
 
-`--redact` drops the image **and** every value that could fingerprint or correlate the cardholder (the `sha256` of a face photo is a stable per-card identifier, and the byte count leaks the same way), leaving only the non-identifying shape of the file, so the record is safe to log or share:
+`--redact` drops the image **and** every value that could fingerprint or correlate the cardholder (the `sha256` of a face photo is a stable per-card identifier, and the byte count leaks the same way), leaving only the non-identifying shape of the file (format, MIME type, dimensions) plus `redacted: true`. The sensitive keys are **omitted rather than stringified**, so the record stays well-typed and is safe to log or share:
 
 ```json
-{ "schema_version": 1, "format": "jpeg", "mime": "image/jpeg", "width": 240, "height": 320, "base64": "[REDACTED]" }
+{ "schema_version": 1, "redacted": true, "format": "jpeg", "mime": "image/jpeg", "width": 240, "height": 320 }
 ```
 
 The same caveat as `fetch-identity` applies: do not run it while a `sign-*` command is active on the same card. The photo is the most sensitive field on the card, so treat the output file, redirected stream, or receiving application accordingly.

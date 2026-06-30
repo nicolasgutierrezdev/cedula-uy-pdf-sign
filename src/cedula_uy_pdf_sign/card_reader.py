@@ -333,19 +333,20 @@ def card_to_json_obj(card: dict, redact: bool = False) -> dict:
 
 
 def photo_to_json_obj(photo: bytes, redact: bool = False) -> dict:
-    """Build the JSON-serialisable record for the cardholder's photo.
+    """Build the JSON-serialisable data fields for the cardholder's photo (the caller adds the
+    top-level ``schema_version`` and ``redacted`` flag).
 
     The full form carries the image (base64) plus identifying metadata (byte count, SHA-256). With
     ``redact`` the image and every value that could fingerprint or correlate the cardholder are
-    dropped (the SHA-256 of a face photo is a stable per-card identifier, and the byte count leaks
-    the same way), leaving only the non-identifying shape of the file: format, MIME type and pixel
-    dimensions, which are the same for every card."""
+    dropped entirely (the SHA-256 of a face photo is a stable per-card identifier, and the byte count
+    leaks the same way), leaving only the non-identifying shape of the file: format, MIME type and
+    pixel dimensions, which are the same for every card. Keys are omitted rather than stringified, so
+    the record stays well-typed."""
     out: dict = {"format": "jpeg", "mime": "image/jpeg"}
     dims = _jpeg_dimensions(photo)
     if dims is not None:
         out["width"], out["height"] = dims
     if redact:
-        out["base64"] = "[REDACTED]"
         return out
     out["bytes"] = len(photo)
     out["sha256"] = hashlib.sha256(photo).hexdigest()
