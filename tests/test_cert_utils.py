@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from cedula_uy_pdf_sign.cert_utils import (
+from firmauy.cert_utils import (
     cert_not_after,
     get_common_name,
     name_fields,

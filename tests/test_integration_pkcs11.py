@@ -165,7 +165,7 @@ class _SoftHSM:
 
     def firmauy(self, *args: str, input_text: str | None = None) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "cedula_uy_pdf_sign", *args],
+            [sys.executable, "-m", "firmauy", *args],
             env=self.env,
             input=input_text,
             capture_output=True,
@@ -330,7 +330,7 @@ def test_verify_pdf_integrity_and_tamper(softhsm, sample_pdf, tmp_path):
     )
     assert proc.returncode == 0, _output(proc)
 
-    from cedula_uy_pdf_sign.pdf_verify import verify_pdf
+    from firmauy.pdf_verify import verify_pdf
 
     # Integrity holds; no trust anchors -> INDETERMINATE, all integrity checks pass.
     results = verify_pdf(output_pdf, trust_roots=None)

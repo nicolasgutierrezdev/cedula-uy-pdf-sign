@@ -3,7 +3,7 @@
 A verifier is routinely handed untrusted input, so a structurally broken signature must produce
 a clean INVALID indication, never an uncaught internal exception (e.g. AttributeError)."""
 
-from cedula_uy_pdf_sign.xml_verify import verify_xml
+from firmauy.xml_verify import verify_xml
 
 DS = "xmlns:ds='http://www.w3.org/2000/09/xmldsig#'"
 
@@ -55,7 +55,7 @@ def test_missing_signing_certificate_binding_is_flagged():
     from cryptography.x509.oid import NameOID
     from lxml import etree
 
-    from cedula_uy_pdf_sign.xml_sign import _xades, sign_xml
+    from firmauy.xml_sign import _xades, sign_xml
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     now = datetime.datetime.now(datetime.timezone.utc)

@@ -15,8 +15,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from pyhanko.sign.timestamps import DummyTimeStamper
 from pyhanko_certvalidator.registry import SimpleCertificateStore
 
-from cedula_uy_pdf_sign.xml_sign import sign_xml
-from cedula_uy_pdf_sign.xml_verify import TS_CHECK_NAME, TS_CHECK_NAME_TRUSTED, verify_xml
+from firmauy.xml_sign import sign_xml
+from firmauy.xml_verify import TS_CHECK_NAME, TS_CHECK_NAME_TRUSTED, verify_xml
 
 XML = b"<?xml version='1.0'?><root><data>hola</data></root>"
 TS_CHECK = TS_CHECK_NAME

@@ -18,7 +18,7 @@ import base64
 import hashlib
 from typing import Optional
 
-from cedula_uy_pdf_sign.ci import validate_ci
+from firmauy.ci import validate_ci
 
 AIS_AID = [0xA0, 0x00, 0x00, 0x00, 0x18, 0x40, 0x00, 0x00, 0x01, 0x63, 0x42, 0x00]
 

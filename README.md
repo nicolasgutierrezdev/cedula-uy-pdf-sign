@@ -973,7 +973,7 @@ uv run pytest
 uv run firmauy --help
 ```
 
-The package source lives under `src/cedula_uy_pdf_sign/`; tests under `tests/`.
+The package source lives under `src/firmauy/`; tests under `tests/`.
 
 ### Developing without the real card (SoftHSM2)
 

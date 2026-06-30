@@ -28,8 +28,8 @@ from pyhanko.sign import fields, signers
 from pyhanko.sign.pkcs11 import PKCS11Signer
 from pyhanko.sign.timestamps import HTTPTimeStamper
 
-from cedula_uy_pdf_sign.appearance import ensure_output_parent, make_appearance_pdf
-from cedula_uy_pdf_sign.card_reader import (
+from firmauy.appearance import ensure_output_parent, make_appearance_pdf
+from firmauy.card_reader import (
     card_to_json_obj,
     format_card_human,
     list_readers,
@@ -38,14 +38,14 @@ from cedula_uy_pdf_sign.card_reader import (
     read_card,
     read_photo,
 )
-from cedula_uy_pdf_sign.cert_utils import (
+from firmauy.cert_utils import (
     cert_not_after,
     get_common_name,
     name_fields,
     normalize_issuer_name,
 )
-from cedula_uy_pdf_sign.ci import complete_ci, validate_ci
-from cedula_uy_pdf_sign.constants import (
+from firmauy.ci import complete_ci, validate_ci
+from firmauy.constants import (
     APPEARANCE_HEIGHT,
     APPEARANCE_WIDTH,
     DEFAULT_IMAGE_OPACITY,
@@ -57,25 +57,25 @@ from cedula_uy_pdf_sign.constants import (
     DEFAULT_Y2,
     ImageMode,
 )
-from cedula_uy_pdf_sign.pin import PinSource, get_pin
-from cedula_uy_pdf_sign.pkcs11_utils import (
+from firmauy.pin import PinSource, get_pin
+from firmauy.pkcs11_utils import (
     find_token,
     get_private_key,
     iter_cert_objects,
     load_pkcs11_lib,
     select_certificate,
 )
-from cedula_uy_pdf_sign.national_ca import (
+from firmauy.national_ca import (
     cache_dir,
     fetch_cas,
     load_bundled_trust_anchors,
     load_cached_trust_anchors,
 )
-from cedula_uy_pdf_sign.pdf_verify import verify_pdf
-from cedula_uy_pdf_sign.xml_sign import sign_xml
-from cedula_uy_pdf_sign.xml_verify import verify_xml
-from cedula_uy_pdf_sign.cms_sign import sign_cms_detached
-from cedula_uy_pdf_sign.cms_verify import verify_cms
+from firmauy.pdf_verify import verify_pdf
+from firmauy.xml_sign import sign_xml
+from firmauy.xml_verify import verify_xml
+from firmauy.cms_sign import sign_cms_detached
+from firmauy.cms_verify import verify_cms
 
 app = typer.Typer(
     help=(

@@ -4,7 +4,7 @@ import pytest
 import typer
 from pyhanko.sign.timestamps import HTTPTimeStamper
 
-from cedula_uy_pdf_sign.cli import _build_timestamper
+from firmauy.cli import _build_timestamper
 
 
 def _b(**kw):

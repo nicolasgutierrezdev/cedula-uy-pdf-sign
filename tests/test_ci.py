@@ -5,7 +5,7 @@ The algorithm is anchored to the public ground-truth vector documented by multip
 
 import pytest
 
-from cedula_uy_pdf_sign.ci import (
+from firmauy.ci import (
     ci_check_digit,
     complete_ci,
     normalize_ci,

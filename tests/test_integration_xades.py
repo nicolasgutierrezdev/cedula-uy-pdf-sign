@@ -127,7 +127,7 @@ def test_sign_xml_produces_valid_xades(softhsm_token, tmp_path):
     output_xml = tmp_path / "doc_firmado.xml"
 
     proc = subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "sign-xml",
+        [sys.executable, "-m", "firmauy", "sign-xml",
          str(input_xml), str(output_xml),
          "--pkcs11-lib", module, "--token-label", TOKEN_LABEL, "--pin-source", "stdin"],
         env=env, input=PIN + "\n", capture_output=True, text=True,
@@ -161,14 +161,14 @@ def test_verify_xml_integrity_and_tamper(softhsm_token, tmp_path):
     )
     output_xml = tmp_path / "signed.xml"
     proc = subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "sign-xml",
+        [sys.executable, "-m", "firmauy", "sign-xml",
          str(input_xml), str(output_xml),
          "--pkcs11-lib", module, "--token-label", TOKEN_LABEL, "--pin-source", "stdin"],
         env=env, input=PIN + "\n", capture_output=True, text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
-    from cedula_uy_pdf_sign.xml_verify import verify_xml
+    from firmauy.xml_verify import verify_xml
 
     signed = output_xml.read_bytes()
     # Integrity holds; without trust anchors the chain is not evaluated -> INDETERMINATE.
@@ -198,7 +198,7 @@ def test_sign_xml_batch_signs_all(softhsm_token, tmp_path):
 
     # One PKCS#11 session, whole directory, PIN entered once (via stdin).
     proc = subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "sign-xml-batch",
+        [sys.executable, "-m", "firmauy", "sign-xml-batch",
          "--input-dir", str(in_dir), "--output-dir", str(out_dir),
          "--pkcs11-lib", module, "--token-label", TOKEN_LABEL, "--pin-source", "stdin"],
         env=env, input=PIN + "\n", capture_output=True, text=True,

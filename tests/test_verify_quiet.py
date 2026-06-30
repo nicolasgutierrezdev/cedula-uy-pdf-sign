@@ -25,10 +25,10 @@ from pyhanko.pdf_utils.writer import PageObject, PdfFileWriter
 from pyhanko.sign.signers import PdfSignatureMetadata, SimpleSigner, sign_pdf
 from pyhanko_certvalidator.registry import SimpleCertificateStore
 
-from cedula_uy_pdf_sign.cms_sign import sign_cms_detached
-from cedula_uy_pdf_sign.cms_verify import verify_cms
-from cedula_uy_pdf_sign.pdf_verify import verify_pdf
-from cedula_uy_pdf_sign.verify_common import muted_path_building_warnings
+from firmauy.cms_sign import sign_cms_detached
+from firmauy.cms_verify import verify_cms
+from firmauy.pdf_verify import verify_pdf
+from firmauy.verify_common import muted_path_building_warnings
 
 _PYHANKO_PATH_LOGGER = "pyhanko.sign.validation.generic_cms"
 

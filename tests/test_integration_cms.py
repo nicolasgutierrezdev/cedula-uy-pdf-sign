@@ -110,7 +110,7 @@ def softhsm_token(tmp_path):
 
 def _sign_any(module, env, input_file, output_p7s, *extra):
     return subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "sign-any",
+        [sys.executable, "-m", "firmauy", "sign-any",
          str(input_file), str(output_p7s),
          "--pkcs11-lib", module, "--token-label", TOKEN_LABEL, "--pin-source", "stdin",
          *extra],
@@ -139,7 +139,7 @@ def test_sign_any_produces_valid_detached_cms(softhsm_token, tmp_path):
     # (The fixture's signing cert is not a real chain to a trustable root, the same
     # reason the XAdES integration test verifies the signature only. The VALID
     # trust-chain path is covered by the self-signed cert in tests/test_cms.py.)
-    from cedula_uy_pdf_sign.cms_verify import verify_cms
+    from firmauy.cms_verify import verify_cms
     res = verify_cms(input_file.read_bytes(), output_p7s.read_bytes(), trust_roots=None)
     assert res.indication == "INDETERMINATE"
     assert all(c.ok for c in res.checks), [(c.name, c.detail) for c in res.checks if not c.ok]
@@ -164,14 +164,14 @@ def test_verify_any_tamper_is_invalid(softhsm_token, tmp_path):
     proc = _sign_any(module, env, input_file, output_p7s)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
-    from cedula_uy_pdf_sign.cms_verify import verify_cms
+    from firmauy.cms_verify import verify_cms
     tampered = b"tampered content\n"
     res_bad = verify_cms(tampered, output_p7s.read_bytes(), trust_roots=None)
     assert res_bad.indication == "INVALID"
 
     # verify-any CLI: integrity OK, no trust -> INDETERMINATE -> exit code 2.
     proc_v = subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "verify-any",
+        [sys.executable, "-m", "firmauy", "verify-any",
          str(input_file), str(output_p7s), "--no-trust"],
         env=env, capture_output=True, text=True,
     )
@@ -193,14 +193,14 @@ def test_sign_any_batch_signs_all(softhsm_token, tmp_path):
     (in_dir / "sub" / "a.bin").write_bytes(b"nested contents\n")
 
     proc = subprocess.run(
-        [sys.executable, "-m", "cedula_uy_pdf_sign", "sign-any-batch",
+        [sys.executable, "-m", "firmauy", "sign-any-batch",
          "--input-dir", str(in_dir), "--output-dir", str(out_dir), "--recursive",
          "--pkcs11-lib", module, "--token-label", TOKEN_LABEL, "--pin-source", "stdin"],
         env=env, input=PIN + "\n", capture_output=True, text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
-    from cedula_uy_pdf_sign.cms_verify import verify_cms
+    from firmauy.cms_verify import verify_cms
     # Each output mirrors the input's relative path; the nested a.bin does not clobber the
     # top-level a.bin.
     outputs = {

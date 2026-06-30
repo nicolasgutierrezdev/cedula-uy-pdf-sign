@@ -24,8 +24,8 @@ from cryptography.hazmat.primitives.serialization import Encoding
 from pyhanko.sign.validation import async_validate_detached_cms
 from pyhanko_certvalidator import ValidationContext
 
-from cedula_uy_pdf_sign.cert_utils import name_fields
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
+from firmauy.cert_utils import name_fields
+from firmauy.verify_common import Check, VerifyResult, muted_path_building_warnings
 
 
 def _to_asn1(certs):

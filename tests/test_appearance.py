@@ -4,13 +4,13 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from cedula_uy_pdf_sign.appearance import (
+from firmauy.appearance import (
     ensure_output_parent,
     make_appearance_pdf,
     split_signer_name,
     wrap_line,
 )
-from cedula_uy_pdf_sign.constants import ImageMode, STAMP_FONT_NAME, STAMP_FONT_SIZE
+from firmauy.constants import ImageMode, STAMP_FONT_NAME, STAMP_FONT_SIZE
 
 
 class TestWrapLine:
@@ -93,7 +93,7 @@ class TestImageAppearance:
     def test_faded_image_is_a_pale_watermark(self, sample_png):
         from PIL import ImageStat
 
-        from cedula_uy_pdf_sign.appearance import _faded_image
+        from firmauy.appearance import _faded_image
 
         faded = _faded_image(str(sample_png), 0.2)
         mean = sum(ImageStat.Stat(faded).mean) / 3  # overall brightness across R/G/B

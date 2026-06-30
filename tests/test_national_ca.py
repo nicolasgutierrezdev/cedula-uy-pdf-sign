@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from cedula_uy_pdf_sign import national_ca
+from firmauy import national_ca
 
 
 class _FakeResp:

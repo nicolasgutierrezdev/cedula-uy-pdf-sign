@@ -3,7 +3,7 @@ import io
 import pytest
 import typer
 
-from cedula_uy_pdf_sign.pin import PinSource, get_pin
+from firmauy.pin import PinSource, get_pin
 
 
 class TestGetPinEnv:

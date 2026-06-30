@@ -285,7 +285,7 @@ def fetch_cas(
 def _bundled_cert(filename: str, expected_fp: str) -> Optional[x509.Certificate]:
     """Load a certificate shipped under ``data/``, returning it only if it matches the pin."""
     try:
-        data = (importlib.resources.files("cedula_uy_pdf_sign") / "data" / filename).read_bytes()
+        data = (importlib.resources.files("firmauy") / "data" / filename).read_bytes()
         cert = _load_cert(data)
     except Exception:
         return None

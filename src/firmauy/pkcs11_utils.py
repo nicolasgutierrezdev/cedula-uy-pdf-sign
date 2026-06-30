@@ -11,7 +11,7 @@ import typer
 from cryptography import x509
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
-from cedula_uy_pdf_sign.cert_utils import cert_not_after, cert_not_before, get_common_name
+from firmauy.cert_utils import cert_not_after, cert_not_before, get_common_name
 
 
 def load_pkcs11_lib(pkcs11_lib: str) -> pkcs11.lib:

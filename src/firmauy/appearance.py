@@ -7,7 +7,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
-from cedula_uy_pdf_sign.constants import (
+from firmauy.constants import (
     APPEARANCE_WIDTH,
     APPEARANCE_HEIGHT,
     DEFAULT_IMAGE_OPACITY,

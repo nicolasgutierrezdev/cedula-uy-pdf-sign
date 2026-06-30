@@ -17,8 +17,8 @@ from cryptography.x509.oid import NameOID
 from pyhanko.sign.signers import SimpleSigner
 from pyhanko_certvalidator.registry import SimpleCertificateStore
 
-from cedula_uy_pdf_sign.cms_sign import sign_cms_detached
-from cedula_uy_pdf_sign.cms_verify import verify_cms
+from firmauy.cms_sign import sign_cms_detached
+from firmauy.cms_verify import verify_cms
 
 
 def _key_and_cert() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:

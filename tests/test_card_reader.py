@@ -8,7 +8,7 @@ import base64
 import hashlib
 import json
 
-from cedula_uy_pdf_sign.card_reader import (
+from firmauy.card_reader import (
     card_to_json_obj,
     format_card_human,
     parse_bio,
@@ -166,7 +166,7 @@ class _FakeCard:
 
 
 def test_read_photo_end_to_end_with_fake_card():
-    from cedula_uy_pdf_sign.card_reader import read_photo
+    from firmauy.card_reader import read_photo
 
     card = _FakeCard(bytes(_ber_tlv(b"\x3f\x01", _JPEG)))   # file 7004 as on the card
     assert read_photo(card) == _JPEG                        # full path: applet -> file -> JPEG

@@ -16,7 +16,7 @@ from pyhanko.sign.signers import SimpleSigner
 from pyhanko_certvalidator.registry import SimpleCertificateStore
 from typer.testing import CliRunner
 
-from cedula_uy_pdf_sign.cli import (
+from firmauy.cli import (
     _check_post_sign,
     _detached_original,
     _detect_signature_kind,
@@ -26,8 +26,8 @@ from cedula_uy_pdf_sign.cli import (
     _verify_after_cms,
     app,
 )
-from cedula_uy_pdf_sign.cms_sign import sign_cms_detached
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult
+from firmauy.cms_sign import sign_cms_detached
+from firmauy.verify_common import Check, VerifyResult
 
 runner = CliRunner()
 
@@ -348,7 +348,7 @@ def _make_id_cert():
 
 
 def test_cert_record_structure_and_pem():
-    from cedula_uy_pdf_sign.cli import _cert_record
+    from firmauy.cli import _cert_record
 
     rec = _cert_record("5c10d3", _make_id_cert(), include_pem=True)
     assert rec["id"] == "5c10d3"
@@ -361,7 +361,7 @@ def test_cert_record_structure_and_pem():
 
 
 def test_redact_cert_record_hides_holder_keeps_issuer():
-    from cedula_uy_pdf_sign.cli import _cert_record, _redact_cert_record
+    from firmauy.cli import _cert_record, _redact_cert_record
 
     red = _redact_cert_record(_cert_record("5c10d3", _make_id_cert(), include_pem=True))
     assert red["subject"]["common_name"] == "[REDACTED]"
@@ -382,7 +382,7 @@ def test_list_certs_redact_with_raw_pem_errors_before_card():
 def test_validate_image_accepts_valid_rejects_invalid(tmp_path):
     from PIL import Image
 
-    from cedula_uy_pdf_sign.cli import _validate_image
+    from firmauy.cli import _validate_image
 
     good = tmp_path / "ok.png"
     Image.new("RGB", (8, 8), (1, 2, 3)).save(good)
@@ -409,7 +409,7 @@ def test_sign_pdf_invalid_image_fails_before_the_card(tmp_path):
 def test_batch_output_preserves_subdirs_and_avoids_collisions(tmp_path):
     from pathlib import Path
 
-    from cedula_uy_pdf_sign.cli import _batch_output
+    from firmauy.cli import _batch_output
 
     out = tmp_path / "out"
     indir = tmp_path / "in"
@@ -427,8 +427,8 @@ def test_batch_output_preserves_subdirs_and_avoids_collisions(tmp_path):
 
 
 def test_image_opacity_warning_only_outside_background(capsys):
-    from cedula_uy_pdf_sign.cli import _warn_image_opacity_unused
-    from cedula_uy_pdf_sign.constants import DEFAULT_IMAGE_OPACITY, ImageMode
+    from firmauy.cli import _warn_image_opacity_unused
+    from firmauy.constants import DEFAULT_IMAGE_OPACITY, ImageMode
 
     img = "sig.png"
     # Non-default opacity in a non-background mode -> warns.
@@ -469,7 +469,7 @@ def test_verify_tsa_ca_ignored_for_non_xml_warns(tmp_path):
 
 
 def test_resolve_tsa_anchors(tmp_path):
-    from cedula_uy_pdf_sign.cli import _resolve_tsa_anchors
+    from firmauy.cli import _resolve_tsa_anchors
 
     assert _resolve_tsa_anchors(None) == (None, None)
 
@@ -494,7 +494,7 @@ def test_resolve_tsa_anchors(tmp_path):
 def test_validate_timezone_accepts_valid_rejects_invalid():
     import typer
 
-    from cedula_uy_pdf_sign.cli import _validate_timezone
+    from firmauy.cli import _validate_timezone
 
     _validate_timezone("America/Montevideo")   # valid -> no raise
     _validate_timezone("UTC")                   # valid -> no raise
@@ -551,7 +551,7 @@ def _software_signer() -> SimpleSigner:
 def _run_failing_sign(tmp_path, monkeypatch, out, *, overwrite):
     from pyhanko.sign import signers
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     inp = tmp_path / "in.pdf"
     inp.write_bytes(_valid_pdf_bytes())
@@ -596,7 +596,7 @@ def test_sign_pdf_output_symlink_is_replaced_not_followed(tmp_path):
     # so an attacker pre-creating the output as a symlink cannot redirect the write.
     from pyhanko.sign import signers
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     inp = tmp_path / "in.pdf"
     inp.write_bytes(_valid_pdf_bytes())
@@ -621,7 +621,7 @@ def test_sign_one_helpers_reject_input_equals_output(tmp_path):
     # The guard lives in the _sign_one_* helpers, so batch mode is covered too (the single
     # commands also guard before the PIN). It fires first, before any signing, so dummy args are
     # fine. This is the data-loss case of sign-*-batch --suffix "" with --output-dir == input dir.
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     p = tmp_path / "a.bin"
     p.write_bytes(b"x")
@@ -654,7 +654,7 @@ class _FakeConn:
 
 
 def _patch_card(monkeypatch, conn):
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
     monkeypatch.setattr(cli, "open_reader", lambda name=None: conn)
     monkeypatch.setattr(cli, "read_photo", lambda c: _JPEG)
 
@@ -665,7 +665,7 @@ def test_fetch_photo_dash_streams_raw_jpeg_to_stdout(monkeypatch):
     import io
     from pathlib import Path
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     conn = _FakeConn()
     _patch_card(monkeypatch, conn)
@@ -693,7 +693,7 @@ def test_fetch_photo_dash_refuses_interactive_terminal(monkeypatch, capsys):
 
     import typer
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     opened = {"n": 0}
 
@@ -720,7 +720,7 @@ def test_fetch_photo_dash_refuses_interactive_terminal(monkeypatch, capsys):
 
 def test_fetch_photo_to_file_writes_bytes_and_reports_on_stdout(tmp_path, monkeypatch, capsys):
     # The default (a path) still writes the JPEG to disk and reports on stdout.
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     conn = _FakeConn()
     _patch_card(monkeypatch, conn)
@@ -740,7 +740,7 @@ def test_fetch_photo_json_emits_record_to_stdout(monkeypatch, capsys):
     import base64
     from pathlib import Path
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     conn = _FakeConn()
     _patch_card(monkeypatch, conn)
@@ -760,7 +760,7 @@ def test_fetch_photo_json_emits_record_to_stdout(monkeypatch, capsys):
 def test_fetch_photo_json_redact_drops_image_and_hash(monkeypatch, capsys):
     from pathlib import Path
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     _patch_card(monkeypatch, _FakeConn())
 
@@ -780,7 +780,7 @@ def test_fetch_photo_json_rejects_file_path(monkeypatch, capsys):
 
     import typer
 
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     opened = {"n": 0}
     monkeypatch.setattr(cli, "open_reader",
@@ -797,7 +797,7 @@ def test_fetch_photo_json_rejects_file_path(monkeypatch, capsys):
 # --- fetch-identity carries the same top-level redacted flag -------------------------------------
 
 def test_fetch_identity_json_carries_redacted_flag(monkeypatch, capsys):
-    from cedula_uy_pdf_sign import cli
+    from firmauy import cli
 
     card = {"bio": {0x01: "PEREZ"}, "doc_num": None, "mrz": None}
     monkeypatch.setattr(cli, "open_reader", lambda name=None: _FakeConn())

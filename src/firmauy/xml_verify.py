@@ -27,9 +27,9 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import Encoding
 from lxml import etree
 
-from cedula_uy_pdf_sign.cert_utils import name_fields
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
-from cedula_uy_pdf_sign.xml_sign import (
+from firmauy.cert_utils import name_fields
+from firmauy.verify_common import Check, VerifyResult, muted_path_building_warnings
+from firmauy.xml_sign import (
     SIGNED_PROPS_TYPE,
     _c14n,
     _compute_enveloped_digest,
