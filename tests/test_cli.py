@@ -455,6 +455,37 @@ def test_verify_original_ignored_for_non_cms_warns(tmp_path):
     assert result.exit_code == 1                       # still verified the XML (no signature)
 
 
+def test_verify_tsa_ca_ignored_for_non_xml_warns(tmp_path):
+    # --tsa-ca applies only to a XAdES-T XML; for a PDF/CMS it is warned, not silently dropped.
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    tsaca = tmp_path / "tsa.pem"
+    tsaca.write_bytes(b"-----BEGIN CERTIFICATE-----\nnot real\n-----END CERTIFICATE-----\n")
+    result = runner.invoke(app, ["verify", str(pdf), "--tsa-ca", str(tsaca), "--no-trust"])
+    assert "--tsa-ca is ignored" in result.output
+
+
+def test_resolve_tsa_anchors(tmp_path):
+    from cedula_uy_pdf_sign.cli import _resolve_tsa_anchors
+
+    assert _resolve_tsa_anchors(None) == (None, None)
+
+    # A self-signed cert is treated as an anchor (root).
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TSA CA")])
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(1)
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=365)).sign(key, hashes.SHA256())
+    )
+    pem = tmp_path / "tsa.pem"
+    pem.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    roots, others = _resolve_tsa_anchors(pem)
+    assert len(roots) == 1 and others == []
+
+
 # --- --timezone pre-flight validation ---------------------------------------
 
 def test_validate_timezone_accepts_valid_rejects_invalid():

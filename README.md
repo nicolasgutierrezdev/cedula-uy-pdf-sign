@@ -298,9 +298,9 @@ Make sure you have reviewed all documents before signing them in batch.
 ### Sign an XML document (XAdES)
 
 Sign an XML document with the cédula, producing a standards-based **XAdES-BES enveloped**
-signature following the XAdES specification (ETSI EN 319 132). It verifies with standard XAdES
-validators and is suitable for signing structured documents such as electronic fiscal documents
-(CFE / facturación electrónica).
+signature following the XAdES specification (ETSI EN 319 132). The signatures verify with
+independent XAdES validators (the test suite cross-checks against `signxml`), so they suit signing
+generic structured XML documents.
 
 ```bash
 firmauy sign-xml input.xml output_signed.xml
@@ -333,7 +333,7 @@ depends on your use case and applicable rules.
 ### Sign multiple XML documents (batch)
 
 Sign many XML files with a single PKCS#11 session (the card PIN is entered only once). This
-mirrors `sign-pdf-batch` for PDFs and is convenient for bulk workflows such as electronic invoicing.
+mirrors `sign-pdf-batch` for PDFs and is convenient for bulk signing workflows.
 
 ```bash
 # Explicit file list
@@ -437,8 +437,9 @@ firmauy verify sig.p7s --original /path/to/document   # or point at the original
 
 A PDF and an XML are self-contained, so a single argument is enough. A detached `.p7s` also
 needs its original file: by default the `<x>.p7s` → `<x>` name is used, or pass `--original`.
-The same `--no-trust`, `--check-revocation`, `--json`, `--json-pretty` and `--redact` options
-apply. The specific commands below remain available (clearer for scripts that know the format).
+The same `--no-trust`, `--check-revocation`, `--tsa-ca` (XAdES-T XML only), `--json`,
+`--json-pretty` and `--redact` options apply. The specific commands below remain available
+(clearer for scripts that know the format).
 
 ### Verify a signed XML
 
@@ -461,12 +462,24 @@ firmauy verify-xml signed.xml --ca-file my-cas.pem
 # Also check certificate revocation via CRL/OCSP (needs network)
 firmauy verify-xml signed.xml --check-revocation
 
+# XAdES-T: validate the timestamp's TSA and evaluate the cert at the trusted timestamp time
+firmauy verify-xml signed.xml --tsa-ca tsa-ca.pem
+
 # Machine-readable JSON output (for CI / other tools)
 firmauy verify-xml signed.xml --json
 ```
 
 Trust anchors are resolved in order: `--ca-file`, then the cache (`firmauy fetch-cas`), then the
 bundled certificates. With `--no-trust`, verification reports signature integrity only (level 1).
+
+**Trusted timestamps and long-term validation (XAdES-T).** By default a XAdES-T timestamp is only
+checked to *bind* to the signature; its TSA is not validated, so the `genTime` is shown as asserted,
+not verified. Pass `--tsa-ca <tsa-bundle.pem>` (the timestamping authority's certificate) to
+validate the RFC 3161 token: on success the timestamp counts as **trusted time** and the signing
+certificate is evaluated **at that time** instead of now, so a signature stays VALID even after the
+signer's certificate later expires. There is no national TSA list to bundle, so this is
+bring-your-own; PDF/CMS timestamps are validated through `--ca-file` instead. See
+[docs/trust-anchors.md](docs/trust-anchors.md).
 
 It reports a per-check breakdown and an overall indication:
 
@@ -477,8 +490,8 @@ It reports a per-check breakdown and an overall indication:
 
 Exit codes: `0` VALID, `1` INVALID, `2` INDETERMINATE.
 
-**JSON output.** Pass `--json` to any verify command (`verify-xml` / `verify-pdf` / `verify-any`)
-to get a single JSON object on stdout (stable `schema_version`; exit codes unchanged), suitable
+**JSON output.** Pass `--json` to any verify command (`verify-xml` / `verify-pdf` / `verify-any` /
+`verify`) to get a single JSON object on stdout (stable `schema_version`; exit codes unchanged), suitable
 for CI or integration. The `signatures` array has one entry per signature (PDFs can have several);
 `signer` and `issuer` are structured:
 
@@ -498,9 +511,11 @@ exit code is `1`.
 Two modifiers (also valid on the human output):
 
 - `--json-pretty`: like `--json` but indented for reading / pasting into issues (implies `--json`).
-- `--redact`: hide personal data (the signer's `common_name`, `serial_number` / document number, and
-  `certificate_serial`) so a result can be shared in logs, issues or screenshots. The issuer (a public
-  CA) is kept.
+- `--redact`: hide personal data so a result can be shared in logs, issues or screenshots. It hides
+  the signer's `common_name`, `serial_number` / document number and `certificate_serial`, and also
+  blanks the free-text `detail` of every check (a chain-validation error can otherwise echo the
+  certificate subject). The issuer (a public CA) is kept, unless the certificate is self-issued, in
+  which case the issuer is the holder and is hidden too.
 
 ```bash
 firmauy verify-pdf signed.pdf --json-pretty            # readable JSON
@@ -543,7 +558,8 @@ Example output of `firmauy verify-pdf signed.pdf --json-pretty` (names fictitiou
 ```
 
 With `--redact`, the `signer` block above becomes `"common_name": "[REDACTED]"`,
-`"serial_number": "[REDACTED]"`, `"certificate_serial": "[REDACTED]"` (everything else unchanged).
+`"serial_number": "[REDACTED]"`, `"certificate_serial": "[REDACTED]"`, and each check `detail`
+becomes `"[REDACTED]"`. The issuer and the check names/results are unchanged.
 
 What it checks: the `SignedInfo` signature, each reference digest (so any change to the document
 is detected), the XAdES signing-certificate binding, and the certificate chain to a trusted root
@@ -627,8 +643,9 @@ CRL/OCSP), anchored to the Uruguayan national root.
   revocation) the result should agree with any standards-conformant validator, because it follows
   the same standards and the same PKI, not because it reproduces any specific tool.
 - It is a focused implementation: it does not cover every XAdES / PAdES profile or policy feature
-  (for example signature policies or long-term / archival levels), so verdicts may differ from
-  other validators on edge cases.
+  (for example signature policies, or the archival AdES levels -LT / -LTA with embedded revocation
+  and archive timestamps), so verdicts may differ from other validators on edge cases. (A trusted
+  timestamp can still be validated with `--tsa-ca`; see the XML verification section.)
 
 A `VALID` result is a technical assessment, not a statement of legal validity.
 

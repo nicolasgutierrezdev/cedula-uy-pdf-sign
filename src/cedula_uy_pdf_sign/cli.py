@@ -1557,6 +1557,23 @@ def _resolve_trust_anchors(ca_file: Optional[Path], no_trust: bool):
     return None, None
 
 
+def _resolve_tsa_anchors(tsa_ca: Optional[Path]):
+    """Return (roots, others) for validating an XAdES-T timestamp's TSA, loaded from --tsa-ca, or
+    (None, None) if not given. Self-signed certs are anchors; the rest are path-building
+    intermediates. With no self-signed cert, all are treated as anchors (the user chose to trust
+    exactly this set)."""
+    if tsa_ca is None:
+        return None, None
+    certs = x509.load_pem_x509_certificates(tsa_ca.read_bytes())
+    if not certs:
+        raise RuntimeError("--tsa-ca contains no certificates.")
+    roots = [c for c in certs if c.subject == c.issuer]
+    others = [c for c in certs if c.subject != c.issuer]
+    if not roots:
+        roots, others = certs, []
+    return roots, others
+
+
 def _display_name(fields: dict, redact: bool = False) -> str:
     """One-line human display of a structured signer/issuer name."""
     if redact and (fields.get("common_name") or fields.get("serial_number")):
@@ -1693,6 +1710,12 @@ _REDACT_OPT_HELP = (
     "Hide personal data (signer name, document and certificate serials) in the output, "
     "e.g. for sharing logs or issues."
 )
+_TSA_CA_OPT_HELP = (
+    "PEM bundle of the trusted timestamping authority's certificate(s), for an XAdES-T XML. When "
+    "given, the timestamp's TSA is validated and, on success, the signing certificate is evaluated "
+    "at the trusted timestamp time (long-term validation). Without it the timestamp is only checked "
+    "to bind to the signature (the TSA is not trusted). PDF/CMS timestamps use --ca-file instead."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1715,6 +1738,8 @@ def verify_xml_cmd(
         False, "--check-revocation",
         help="Also check certificate revocation via CRL/OCSP (level 3). Requires network.",
     ),
+    tsa_ca: Optional[Path] = typer.Option(
+        None, "--tsa-ca", exists=True, readable=True, dir_okay=False, help=_TSA_CA_OPT_HELP),
     json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
     json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
     redact: bool = typer.Option(False, "--redact", help=_REDACT_OPT_HELP),
@@ -1724,8 +1749,9 @@ def verify_xml_cmd(
 
     Indication: VALID (integrity + trusted chain), INDETERMINATE (integrity OK but
     chain not trusted/not checked), INVALID (signature broken or document modified).
-    Note: revocation (CRL/OCSP) is not checked, and for XAdES-BES the signing time
-    is self-asserted, so validity is evaluated at verification time.
+    Note: revocation (CRL/OCSP) is not checked. For XAdES-BES (no timestamp) the signing time is
+    self-asserted, so validity is evaluated at verification time; with --tsa-ca a XAdES-T timestamp
+    is trust-validated and the certificate is evaluated at the trusted timestamp time instead.
     """
     try:
         json_output = json_output or json_pretty
@@ -1733,12 +1759,15 @@ def verify_xml_cmd(
             raise RuntimeError("--check-revocation requires the certificate chain; remove --no-trust.")
 
         roots, intermediates = _resolve_trust_anchors(ca_file, no_trust)
+        tsa_roots, tsa_others = _resolve_tsa_anchors(tsa_ca)
 
         result = verify_xml(
             input_xml.read_bytes(),
             trust_roots=roots,
             intermediates=intermediates,
             check_revocation=check_revocation,
+            tsa_trust_roots=tsa_roots,
+            tsa_other_certs=tsa_others,
         )
 
         overall = _emit_verify([result], json_output, pretty=json_pretty, redact=redact)
@@ -1942,6 +1971,8 @@ def verify_cmd(
         False, "--check-revocation",
         help="Also check certificate revocation via CRL/OCSP. Requires network.",
     ),
+    tsa_ca: Optional[Path] = typer.Option(
+        None, "--tsa-ca", exists=True, readable=True, dir_okay=False, help=_TSA_CA_OPT_HELP),
     json_output: bool = typer.Option(False, "--json", help=_JSON_OPT_HELP),
     json_pretty: bool = typer.Option(False, "--json-pretty", help=_JSON_PRETTY_OPT_HELP),
     redact: bool = typer.Option(False, "--redact", help=_REDACT_OPT_HELP),
@@ -1951,7 +1982,8 @@ def verify_cmd(
 
     Same checks, flags, indication model and exit codes as the specific verify-* commands
     (0 VALID, 1 INVALID, 2 INDETERMINATE). A detached .p7s also needs its original file:
-    by default the '<x>.p7s -> <x>' name is used, or pass --original.
+    by default the '<x>.p7s -> <x>' name is used, or pass --original. --tsa-ca applies only to a
+    XAdES-T XML.
     """
     try:
         json_output = json_output or json_pretty
@@ -1977,14 +2009,23 @@ def verify_cmd(
                 fg=typer.colors.YELLOW, err=True,
             )
 
+        if tsa_ca is not None and kind != "xml":
+            typer.secho(
+                f"Note: --tsa-ca is ignored for a {kind.upper()} file "
+                "(it applies to a XAdES-T XML; PDF/CMS timestamps use --ca-file).",
+                fg=typer.colors.YELLOW, err=True,
+            )
+
         roots, intermediates = _resolve_trust_anchors(ca_file, no_trust)
 
         if kind == "pdf":
             results = verify_pdf(input_file, trust_roots=roots, intermediates=intermediates,
                                  check_revocation=check_revocation)
         elif kind == "xml":
+            tsa_roots, tsa_others = _resolve_tsa_anchors(tsa_ca)
             results = [verify_xml(input_file.read_bytes(), trust_roots=roots,
-                                  intermediates=intermediates, check_revocation=check_revocation)]
+                                  intermediates=intermediates, check_revocation=check_revocation,
+                                  tsa_trust_roots=tsa_roots, tsa_other_certs=tsa_others)]
         else:  # cms / detached .p7s
             with orig.open("rb") as data:
                 results = [verify_cms(data, input_file.read_bytes(), trust_roots=roots,

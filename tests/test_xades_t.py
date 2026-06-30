@@ -16,7 +16,7 @@ from pyhanko.sign.timestamps import DummyTimeStamper
 from pyhanko_certvalidator.registry import SimpleCertificateStore
 
 from cedula_uy_pdf_sign.xml_sign import sign_xml
-from cedula_uy_pdf_sign.xml_verify import TS_CHECK_NAME, verify_xml
+from cedula_uy_pdf_sign.xml_verify import TS_CHECK_NAME, TS_CHECK_NAME_TRUSTED, verify_xml
 
 XML = b"<?xml version='1.0'?><root><data>hola</data></root>"
 TS_CHECK = TS_CHECK_NAME
@@ -97,3 +97,100 @@ def test_tampered_timestamp_fails_only_the_timestamp_check():
     # (not INVALID) and the main signature checks stay intact.
     assert result.indication == "INDETERMINATE"
     assert _check(result, "SignedInfo signature (RSA-SHA256)").ok
+
+
+# --- --tsa-ca: TSA validation + long-term validation (evaluate at genTime) ---
+
+def _to_a(cert):
+    return a_x509.Certificate.load(cert.public_bytes(serialization.Encoding.DER))
+
+
+def _to_a_key(key):
+    return a_keys.PrivateKeyInfo.load(key.private_bytes(
+        serialization.Encoding.DER, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+
+
+def _ca_and_leaf(leaf_cn, *, leaf_not_before, leaf_not_after, timestamping=False):
+    """A 2-level chain: a self-signed CA and a leaf it issues (so the leaf is not self-signed and
+    validates cleanly against the CA as anchor)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"{leaf_cn} CA")])
+    ca = (
+        x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name)
+        .public_key(ca_key.public_key()).serial_number(1)
+        .not_valid_before(now - datetime.timedelta(days=3650))
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, leaf_cn)]))
+        .issuer_name(ca_name).public_key(leaf_key.public_key()).serial_number(2)
+        .not_valid_before(leaf_not_before).not_valid_after(leaf_not_after)
+    )
+    if timestamping:
+        builder = builder.add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.TIME_STAMPING]), critical=True)
+    return ca, builder.sign(ca_key, hashes.SHA256()), leaf_key
+
+
+def _signed_with_tsa(signer_leaf, signer_key, tsa_leaf, tsa_key, tsa_ca, signing_time):
+    stamper = DummyTimeStamper(
+        _to_a(tsa_leaf), _to_a_key(tsa_key),
+        certs_to_embed=SimpleCertificateStore.from_certs([_to_a(tsa_ca)]))
+    return sign_xml(
+        XML, cert=signer_leaf,
+        signer=lambda d: signer_key.sign(d, padding.PKCS1v15(), hashes.SHA256()),
+        signing_time=signing_time, timestamper=stamper)
+
+
+def test_tsa_ca_enables_ltv_evaluation_at_gentime():
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # Signer cert valid only [-1d, +1d]; the TSA cert is valid for a year.
+    signer_ca, signer_leaf, signer_key = _ca_and_leaf(
+        "PEREZ JUAN", leaf_not_before=now - datetime.timedelta(days=1),
+        leaf_not_after=now + datetime.timedelta(days=1))
+    tsa_ca, tsa_leaf, tsa_key = _ca_and_leaf(
+        "MY TSA", leaf_not_before=now - datetime.timedelta(days=1),
+        leaf_not_after=now + datetime.timedelta(days=365), timestamping=True)
+    signed = _signed_with_tsa(signer_leaf, signer_key, tsa_leaf, tsa_key, tsa_ca, now)
+
+    later = now + datetime.timedelta(days=2)   # the signer cert is expired at this "now"
+
+    # Without --tsa-ca: chain evaluated at `later` -> signer cert expired -> INDETERMINATE.
+    r_no = verify_xml(signed, trust_roots=[signer_ca], at_time=later)
+    assert r_no.indication == "INDETERMINATE"
+    assert TS_CHECK_NAME in {c.name for c in r_no.checks}   # binding-only, TSA not validated
+
+    # With --tsa-ca: the timestamp is trust-validated, so the signer cert is evaluated at the
+    # trusted genTime (when it was still valid) -> VALID (long-term validation).
+    r_yes = verify_xml(signed, trust_roots=[signer_ca], at_time=later, tsa_trust_roots=[tsa_ca])
+    assert r_yes.indication == "VALID", [(c.name, c.detail) for c in r_yes.checks]
+    ts = _check(r_yes, TS_CHECK_NAME_TRUSTED)
+    assert ts is not None and ts.ok and "trusted" in ts.detail
+
+
+def test_tsa_ca_wrong_anchor_does_not_trust_timestamp():
+    now = datetime.datetime.now(datetime.timezone.utc)
+    signer_ca, signer_leaf, signer_key = _ca_and_leaf(
+        "PEREZ JUAN", leaf_not_before=now - datetime.timedelta(days=1),
+        leaf_not_after=now + datetime.timedelta(days=1))
+    tsa_ca, tsa_leaf, tsa_key = _ca_and_leaf(
+        "MY TSA", leaf_not_before=now - datetime.timedelta(days=1),
+        leaf_not_after=now + datetime.timedelta(days=365), timestamping=True)
+    signed = _signed_with_tsa(signer_leaf, signer_key, tsa_leaf, tsa_key, tsa_ca, now)
+
+    # An unrelated CA as --tsa-ca: the timestamp's TSA does not chain to it -> not trusted.
+    other_ca, _, _ = _ca_and_leaf(
+        "OTHER", leaf_not_before=now - datetime.timedelta(days=1),
+        leaf_not_after=now + datetime.timedelta(days=1))
+    result = verify_xml(signed, trust_roots=[signer_ca], tsa_trust_roots=[other_ca])
+    ts = _check(result, TS_CHECK_NAME_TRUSTED)
+    assert ts is not None and not ts.ok          # TSA validation failed
+    assert "chain" in ts.detail
+    # The core signature is intact and the signer chain is fine, but the unverified timestamp holds
+    # the result at INDETERMINATE (an unsigned property never makes it INVALID).
+    assert result.indication == "INDETERMINATE"

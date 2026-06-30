@@ -14,9 +14,11 @@ Verification uses them automatically, so it works offline with no setup; `firmau
 refresh them from the sources below into a per-user cache (which then takes precedence over the
 bundled copies).
 
-Every certificate (bundled, cached, downloaded, or supplied via `--ca-file` / `--from-file`) is
-verified against a pinned SHA-256 fingerprint, and the intermediate is additionally checked to be
-signed by the root, so the origin of the bytes never matters.
+Every certificate on the *national-CA path* (bundled, cached, downloaded, or seeded via
+`--from-file`) is verified against a pinned SHA-256 fingerprint, and the intermediate is
+additionally checked to be signed by the root, so the origin of those bytes never matters.
+(`--ca-file` is different: it lets you supply your *own* trust anchors for verification, so it is
+intentionally **not** pinned, the whole point being to trust a set you chose.)
 
 | Certificate | Source(s), tried in order |
 |---|---|
@@ -93,10 +95,18 @@ added with `--tsa-url`) provides independent trusted-time evidence of when the s
 On the verification side, that evidence is only as good as the timestamp's own validation. For PDF
 (PAdES-T) and CMS (CAdES-T), pyHanko checks the embedded timestamp against the active trust
 anchors, so it counts as trusted time only when the TSA's CA is among them (e.g. supplied via
-`--ca-file`). For XML (XAdES-T), `firmauy` currently confirms only that the timestamp **binds to
-the signature**; it does **not** validate the TSA's certificate, so the reported `genTime` is what
-the TSA asserts, not verified time. Treat the XAdES-T `genTime` as informational until TSA
-validation is added.
+`--ca-file`). For XML (XAdES-T), `firmauy verify-xml` confirms by default only that the timestamp
+**binds to the signature**; it does **not** validate the TSA's certificate, so the reported
+`genTime` is what the (unverified) TSA asserts. Pass **`--tsa-ca <tsa-bundle.pem>`** to validate the
+RFC 3161 token against the timestamping authority's certificate: on success the `genTime` becomes
+trusted and the signing certificate is then evaluated **at that time** instead of now (long-term
+validation), so a signature stays VALID even after the signer's certificate later expires.
+
+There is no national list of trusted timestamping authorities to bundle (unlike the national CA),
+so `--tsa-ca` is bring-your-own: supply the CA of whichever TSA you used. Embedding revocation data
+at signing time (the AdES `-LT` / `-LTA` levels, for full archival validation) is out of scope and,
+for the cédula, currently impossible anyway since the Ministerio del Interior CRL endpoint is
+decommissioned.
 
 The bundled national CA certificates expire (2031) and can be rotated by the issuer; re-run
 `firmauy fetch-cas` to refresh from the network, or use `--ca-file`.

@@ -28,7 +28,7 @@ from cryptography.hazmat.primitives.serialization import Encoding
 from lxml import etree
 
 from cedula_uy_pdf_sign.cert_utils import name_fields
-from cedula_uy_pdf_sign.verify_common import Check, VerifyResult
+from cedula_uy_pdf_sign.verify_common import Check, VerifyResult, muted_path_building_warnings
 from cedula_uy_pdf_sign.xml_sign import (
     SIGNED_PROPS_TYPE,
     _c14n,
@@ -87,42 +87,97 @@ def _verify_chain(leaf, intermediates, roots, at_time, check_revocation=False) -
         return False, f"{type(exc).__name__}: {str(exc)[:120]}"
 
 
-# The XAdES-T timestamp check only proves the RFC 3161 token *binds* to this signature; it does
-# NOT validate the TSA's certificate (no trusted timestamping list exists for the Uruguayan
-# cédula, and the token is an unsigned property anyway). The name and detail say so explicitly,
-# so a passing check is never mistaken for trusted, verified time.
+# Check name when no --tsa-ca was given: the token *binds* to this signature, but the TSA's own
+# certificate is NOT validated, so the genTime is only what the (unverified) TSA asserts. The name
+# and detail say so explicitly, so a passing check is never mistaken for trusted, verified time.
 TS_CHECK_NAME = "signature timestamp present (XAdES-T, TSA not trust-validated)"
+# Check name when --tsa-ca was given and the RFC 3161 token validated against it: trusted time.
+TS_CHECK_NAME_TRUSTED = "signature timestamp (XAdES-T, TSA chain validated)"
 
 
-def _verify_timestamp(sig) -> Optional[Check]:
-    """If a XAdES-T <SignatureTimeStamp> is present, check that its RFC 3161 token binds to the
-    signature: its messageImprint must equal the digest of the canonicalized <ds:SignatureValue>.
-    Returns None for a plain XAdES-BES signature (no timestamp).
+def _verify_timestamp(sig, tsa_trust_roots=None, tsa_other_certs=None) -> Optional[tuple]:
+    """Verify a XAdES-T <SignatureTimeStamp>, returning ``(Check, trusted_time)``; None when the
+    signature carries no timestamp.
 
-    This confirms the timestamp covers *this* signature; it does NOT validate the TSA's own
-    certificate chain. So the genTime is only what the (unverified) TSA asserts: an attacker who
-    can alter the file can substitute a token from any TSA with an arbitrary genTime and still pass
-    this check. The check name and detail flag that explicitly; trusted time would require
-    validating the token against a trusted TSA (a future --tsa-ca)."""
+    Always checks that the RFC 3161 token *binds* to this signature (its messageImprint equals the
+    digest of the canonicalized <ds:SignatureValue>).
+
+    Without ``tsa_trust_roots`` the TSA certificate is NOT validated, so the genTime is only what
+    the (unverified) TSA asserts and ``trusted_time`` is None: an attacker able to alter the file
+    could substitute a token from any TSA with an arbitrary genTime and still pass the binding.
+
+    With ``tsa_trust_roots`` (from --tsa-ca) the token's SignedData is fully validated via pyHanko
+    (token signature + messageImprint + TSA chain with the timeStamping EKU). On success the genTime
+    is trusted and returned as ``trusted_time``, so the caller can evaluate the signing certificate
+    at that time (long-term validation)."""
     from asn1crypto import cms as asn1cms
 
     ets = sig.find(f".//{_xades('SignatureTimeStamp')}/{_xades('EncapsulatedTimeStamp')}")
     if ets is None or not ets.text:
         return None
+
+    sv = sig.find(_ds("SignatureValue"))
     try:
         token_der = base64.b64decode(re.sub(r"\s+", "", ets.text))
-        tst_info = asn1cms.ContentInfo.load(token_der)["content"]["encap_content_info"]["content"].parsed
+        signed_data = asn1cms.ContentInfo.load(token_der)["content"]
+        tst_info = signed_data["encap_content_info"]["content"].parsed
         mi = tst_info["message_imprint"]
         algo = mi["hash_algorithm"]["algorithm"].native
-        sv = sig.find(_ds("SignatureValue"))
         expected = hashlib.new(algo, _c14n(sv)).digest()
         gen_time = tst_info["gen_time"].native
     except Exception as exc:
-        return Check(TS_CHECK_NAME, False, f"could not parse timestamp: {str(exc)[:80]}")
+        return Check(TS_CHECK_NAME, False, f"could not parse timestamp: {str(exc)[:80]}"), None
+
+    if tsa_trust_roots:
+        return _validate_tsa_token(signed_data, sv, gen_time, tsa_trust_roots, tsa_other_certs)
+
+    # No --tsa-ca: binding only, and honest that the TSA was not validated.
     if mi["hashed_message"].native == expected:
         return Check(TS_CHECK_NAME, True,
-                     f"genTime {gen_time.isoformat()} (asserted by the TSA, not verified)")
-    return Check(TS_CHECK_NAME, False, "timestamp does not match the signature value")
+                     f"genTime {gen_time.isoformat()} (asserted by the TSA, not verified)"), None
+    return Check(TS_CHECK_NAME, False, "timestamp does not match the signature value"), None
+
+
+def _validate_tsa_token(signed_data, sv, gen_time, tsa_trust_roots, tsa_other_certs) -> tuple:
+    """Validate an RFC 3161 token against the --tsa-ca anchors via pyHanko's
+    ``validate_tst_signed_data`` (token signature + messageImprint + TSA chain). Returns
+    ``(Check, trusted_time)``; ``trusted_time`` is the genTime only when fully trusted."""
+    import asyncio
+
+    from asn1crypto import x509 as asn1x509
+    from pyhanko.sign.validation.generic_cms import validate_tst_signed_data
+    from pyhanko.sign.validation.status import TimestampSignatureStatus
+    from pyhanko_certvalidator import ValidationContext
+
+    def to_asn1(c):
+        return asn1x509.Certificate.load(c.public_bytes(Encoding.DER))
+
+    def imprint(hash_algo: str) -> bytes:
+        return hashlib.new(hash_algo, _c14n(sv)).digest()
+
+    try:
+        vc = ValidationContext(
+            trust_roots=[to_asn1(c) for c in tsa_trust_roots],
+            other_certs=[to_asn1(c) for c in (tsa_other_certs or [])],
+            allow_fetching=False,
+            revocation_mode="soft-fail",
+            moment=gen_time,   # validate the TSA certificate at the time it claims to have signed
+        )
+        with muted_path_building_warnings():
+            kwargs = asyncio.run(validate_tst_signed_data(signed_data, vc, imprint))
+        status = TimestampSignatureStatus(**kwargs)
+    except Exception as exc:
+        return Check(TS_CHECK_NAME_TRUSTED, False, f"TSA validation error: {str(exc)[:80]}"), None
+
+    if status.intact and status.valid and status.trusted:
+        return Check(TS_CHECK_NAME_TRUSTED, True, f"genTime {gen_time.isoformat()} (trusted)"), gen_time
+    if not status.intact:
+        reason = "timestamp does not match the signature value"
+    elif not status.valid:
+        reason = "timestamp token signature is invalid"
+    else:
+        reason = "TSA certificate does not chain to the --tsa-ca anchor(s)"
+    return Check(TS_CHECK_NAME_TRUSTED, False, reason), None
 
 
 def verify_xml(
@@ -132,10 +187,15 @@ def verify_xml(
     intermediates: Optional[list] = None,
     at_time: Optional[datetime] = None,
     check_revocation: bool = False,
+    tsa_trust_roots: Optional[list] = None,
+    tsa_other_certs: Optional[list] = None,
 ) -> VerifyResult:
-    """Verify a XAdES-BES enveloped signature. If `trust_roots` is given, also
-    validate the certificate chain (level 2); with `check_revocation=True` it also
-    checks CRL/OCSP (level 3, needs network). Otherwise only integrity (level 1)."""
+    """Verify a XAdES-BES/-T enveloped signature. If `trust_roots` is given, also validate the
+    certificate chain (level 2); with `check_revocation=True` it also checks CRL/OCSP (level 3,
+    needs network). Otherwise only integrity (level 1).
+
+    With `tsa_trust_roots` (from --tsa-ca) a XAdES-T timestamp's TSA is validated; on success the
+    signing certificate is evaluated at the trusted genTime instead of now (long-term validation)."""
     checks: list = []
     root = etree.fromstring(xml_bytes)
     sig = root.find(_ds("Signature"))
@@ -198,16 +258,23 @@ def verify_xml(
     # validation; at worst it holds the result at INDETERMINATE.
     level1_ok = all(c.ok for c in checks)
 
-    ts_check = _verify_timestamp(sig)   # None for plain XAdES-BES
-    if ts_check is not None:
+    ts_result = _verify_timestamp(sig, tsa_trust_roots, tsa_other_certs)   # None for plain XAdES-BES
+    trusted_time = None
+    if ts_result is not None:
+        ts_check, trusted_time = ts_result
         checks.append(ts_check)
-    timestamp_ok = ts_check is None or ts_check.ok
+        timestamp_ok = ts_check.ok
+    else:
+        timestamp_ok = True
 
-    # Level 2: certificate chain
+    # Level 2: certificate chain. With a trust-validated timestamp (--tsa-ca) the signing
+    # certificate is evaluated at the trusted genTime (long-term validation), else at at_time/now.
     trusted = False
     if level1_ok and trust_roots:
-        at = at_time or datetime.now(timezone.utc)
+        at = trusted_time or at_time or datetime.now(timezone.utc)
         ok, detail = _verify_chain(cert, intermediates or [], trust_roots, at, check_revocation)
+        if ok and trusted_time is not None:
+            detail = f"{detail}; evaluated at trusted genTime {trusted_time.isoformat()}"
         checks.append(Check("certificate chain to trusted root", ok, detail))
         trusted = ok
 
