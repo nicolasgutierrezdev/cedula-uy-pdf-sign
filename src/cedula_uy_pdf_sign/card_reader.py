@@ -6,24 +6,30 @@
 Reads the biographical fields, document number and MRZ from the card via
 raw ISO 7816-4 APDUs over a pyscard PC/SC connection. No PIN is required:
 the AIS applet data is public. Do not call while a PKCS#11 session is open
-on the same card -- both paths go through pcscd and may conflict.
+on the same card; both paths go through pcscd and may conflict.
+
+The AID, file identifiers (7001 document number, 7002 biographical data, 700B MRZ), APDUs and TLV
+layout follow AGESIC's public technical documentation for the ID Uruguay card (IAS CLASSIC; ISO/IEC
+7816, ICAO 9303), not any reverse engineering of the middleware:
+https://www.gub.uy/agencia-gobierno-electronico-sociedad-informacion-conocimiento/comunicacion/publicaciones/documentacion-tecnica-id-uruguay
 """
 
 from typing import Optional
 
 AIS_AID = [0xA0, 0x00, 0x00, 0x00, 0x18, 0x40, 0x00, 0x00, 0x01, 0x63, 0x42, 0x00]
 
-# tag → (display_label, is_date, json_key, is_personal)
-# is_personal=True fields are hidden by --redact; the rest are kept.
+# tag -> (display_label, is_date, json_key)
+# Every field here is the cardholder's personal data, so --redact hides them all (a partial
+# redaction of an identity dump, e.g. keeping birth date or birthplace, defeats the purpose).
 BIO_FIELDS = {
-    0x01: ("Primer apellido",      False, "first_lastname",  True),
-    0x02: ("Segundo apellido",     False, "second_lastname", True),
-    0x03: ("Nombre(s)",            False, "given_names",     True),
-    0x04: ("Nacionalidad",         False, "nationality",     False),
-    0x05: ("Fecha de nacimiento",  True,  "birth_date",      False),
-    0x06: ("Lugar de nacimiento",  False, "birthplace",      False),
-    0x07: ("Número de cédula",     False, "id_number",       True),
-    0x09: ("Fecha de vencimiento", True,  "expiry_date",     False),
+    0x01: ("Primer apellido",      False, "first_lastname"),
+    0x02: ("Segundo apellido",     False, "second_lastname"),
+    0x03: ("Nombre(s)",            False, "given_names"),
+    0x04: ("Nacionalidad",         False, "nationality"),
+    0x05: ("Fecha de nacimiento",  True,  "birth_date"),
+    0x06: ("Lugar de nacimiento",  False, "birthplace"),
+    0x07: ("Número de cédula",     False, "id_number"),
+    0x09: ("Fecha de vencimiento", True,  "expiry_date"),
 }
 
 
@@ -133,8 +139,17 @@ def read_card(conn) -> dict:
 # ── Reader discovery ──────────────────────────────────────────────────────────
 
 def list_readers() -> list:
-    """Return all available PC/SC readers (lazy-imports pyscard)."""
-    from smartcard.System import readers as _readers
+    """Return all available PC/SC readers.
+
+    pyscard is imported lazily so that signing/verification never depend on the PC/SC stack being
+    loadable; only this reader path does."""
+    try:
+        from smartcard.System import readers as _readers
+    except ImportError as exc:
+        raise RuntimeError(
+            "PC/SC reader support could not be loaded. Install the smart-card stack and start "
+            "pcscd (Arch: sudo pacman -S pcsclite ccid; sudo systemctl enable --now pcscd)."
+        ) from exc
     return list(_readers())
 
 
@@ -204,17 +219,17 @@ def format_card_human(card: dict, redact: bool = False) -> str:
     mrz     = card["mrz"]
     lines = [
         _border("╔", "═", "╗"),
-        _center(" CÉDULA DE IDENTIDAD — URUGUAY "),
+        _center(" CÉDULA DE IDENTIDAD - URUGUAY "),
         _border("╠", "═", "╣"),
     ]
     if doc_num is not None:
         lines.append(_row("Número de documento", "[REDACTED]" if redact else doc_num))
         lines.append("╟" + "─" * _W + "╢")
-    for tag, (label, is_date, _, is_personal) in BIO_FIELDS.items():
+    for tag, (label, is_date, _) in BIO_FIELDS.items():
         val = bio.get(tag)
         if val is None:
             continue
-        display = "[REDACTED]" if (redact and is_personal) else (_fmt_date(val) if is_date else val)
+        display = "[REDACTED]" if redact else (_fmt_date(val) if is_date else val)
         lines.append(_row(label, display))
     if mrz is not None:
         lines.extend([
@@ -235,11 +250,11 @@ def card_to_json_obj(card: dict, redact: bool = False) -> dict:
     """Build the JSON-serialisable dict for a card read result."""
     bio = card["bio"]
     out: dict = {}
-    for tag, (_, is_date, key, is_personal) in BIO_FIELDS.items():
+    for tag, (_, is_date, key) in BIO_FIELDS.items():
         val = bio.get(tag)
         if val is None:
             continue
-        if redact and is_personal:
+        if redact:
             out[key] = "[REDACTED]"
         elif is_date:
             out[key] = _fmt_date(val)

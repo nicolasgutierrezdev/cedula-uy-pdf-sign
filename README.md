@@ -36,7 +36,9 @@ The CLI tool is invoked as `firmauy` and supports:
 - verifying signed PDF, XML and detached `.p7s` files locally, with chain validation to the national root
 - configuring the visible signature position
 - selecting the signature page
-- discovering available PKCS#11 tokens and certificates
+- discovering PC/SC readers, PKCS#11 tokens and certificates
+- reading the cardholder's public biographical data from the card, without a PIN (`fetch-identity`)
+- diagnosing the local setup with `doctor`
 - non-interactive PIN sources for controlled automation workflows
 
 ## Supported signature formats
@@ -713,7 +715,7 @@ PASS  bundled national CA certificates: root + intermediate loaded
 
 ### Read biographical data from the card
 
-`firmauy fetch-identity` reads the biographical data stored in the card's AIS applet — names, birth date, nationality, birthplace, document number and MRZ — directly via PC/SC. **No PIN is required**: this data is publicly accessible without card authentication.
+`firmauy fetch-identity` reads the biographical data stored in the card's AIS applet (names, birth date, nationality, birthplace, document number and MRZ) directly via PC/SC. **No PIN is required**: this data is publicly accessible without card authentication. The applet, file identifiers and APDUs follow [AGESIC's public technical documentation](https://www.gub.uy/agencia-gobierno-electronico-sociedad-informacion-conocimiento/comunicacion/publicaciones/documentacion-tecnica-id-uruguay) for the ID Uruguay card (ISO/IEC 7816, ICAO 9303).
 
 > ⚠️ Do not run `fetch-identity` while a `sign-*` command is active on the same card. Both paths go through `pcscd` and may conflict on the same card connection.
 
@@ -733,7 +735,7 @@ firmauy fetch-identity --json
 # Indented JSON (implies --json)
 firmauy fetch-identity --json-pretty
 
-# Hide identifying fields (names, ID number, MRZ) but keep nationality, dates, birthplace
+# Hide every biographical field (all of it is the cardholder's data) for sharing the output
 firmauy fetch-identity --redact
 firmauy fetch-identity --json --redact
 ```
@@ -742,7 +744,7 @@ Human output example:
 
 ```text
 ╔════════════════════════════════════════════════════════╗
-║             CÉDULA DE IDENTIDAD — URUGUAY              ║
+║             CÉDULA DE IDENTIDAD - URUGUAY              ║
 ╠════════════════════════════════════════════════════════╣
 ║  Número de documento       00000TXXXX                  ║
 ╟────────────────────────────────────────────────────────╢
@@ -807,6 +809,8 @@ All cryptographic operations are performed on the user's machine and/or the conn
 Note: Optional features such as timestamping (TSA) may involve external network requests, depending on user configuration.
 
 Note: the signing commands print a summary that includes identifying data (signer name, certificate issuer, certificate serial number and PKCS#11 key ID). This stays on your machine, but in batch or automated pipelines that output can end up in CI or centralized logs. Pass `--quiet` (`-q`) to the `sign-pdf`, `sign-pdf-batch`, `sign-xml`, `sign-xml-batch`, `sign-any` and `sign-any-batch` commands to suppress that block while still signing.
+
+Note: `fetch-identity` reads and prints the cardholder's biographical data (names, birth date, birthplace, document number, MRZ). It is public card data read without a PIN, but it is still personal: pass `--redact` to replace every field with `[REDACTED]` before sharing the output.
 
 ## Signature verification
 
