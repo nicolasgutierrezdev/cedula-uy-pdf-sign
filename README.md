@@ -578,6 +578,12 @@ certificate chain to the national root. Trust anchors work exactly like `verify-
 Same indication model (VALID / INDETERMINATE / INVALID) and exit codes as `verify-xml`. When a
 PDF has multiple signatures, the overall indication is the worst one.
 
+> **Note on multi-signature PDFs.** When a PDF is signed more than once, each later signature
+> appends content, so the **earlier** signatures no longer cover the whole file: their coverage
+> check reports `ENTIRE_REVISION` (not `ENTIRE_FILE`) and the signature reads `INDETERMINATE`,
+> even though it is intact. Only the most recent signature covers the whole file. This is
+> deliberately conservative: it never reports a tampered PDF as valid.
+
 ### Verify a detached signature (.p7s)
 
 Verify a detached CAdES/`.p7s` signature over a file, mirroring `verify-xml` / `verify-pdf`.
@@ -650,6 +656,16 @@ firmauy list-certs --pem > my-cert.pem
 This is your **leaf** certificate. It is already embedded in every signature firmauy produces
 (so a verifier does not need it separately), and it is **not** a `--ca-file` trust anchor (that
 expects the national root, which is bundled).
+
+For automation, `--json` (or `--json-pretty`) emits the list as structured JSON (`schema_version` 1),
+handy to pick a certificate programmatically (its `id` feeds `--cert-id`). With `--pem` each entry
+also gets a `pem` field; with `--redact` the holder's personal data (subject common name, document
+number, certificate serial and PEM) is hidden for sharing, keeping the issuer:
+
+```bash
+firmauy list-certs --json-pretty                 # structured, readable
+firmauy list-certs --json --redact               # safe to share (no personal data)
+```
 
 ### Diagnose your setup (doctor)
 

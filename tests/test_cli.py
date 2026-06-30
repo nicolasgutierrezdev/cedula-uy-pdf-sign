@@ -259,6 +259,75 @@ def test_verify_autodetect_detached_without_original_errors(tmp_path):
     assert "needs its original file" in result.output
 
 
+def _make_id_cert():
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "UY"),
+        x509.NameAttribute(NameOID.COMMON_NAME, "PEREZ JUAN"),
+        x509.NameAttribute(NameOID.SERIAL_NUMBER, "DNI123"),
+    ])
+    issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "AC MI")])
+    return (
+        x509.CertificateBuilder().subject_name(subject).issuer_name(issuer)
+        .public_key(key.public_key()).serial_number(0x78191)
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, content_commitment=True, key_encipherment=False,
+            data_encipherment=False, key_agreement=False, key_cert_sign=False,
+            crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+
+
+def test_cert_record_structure_and_pem():
+    from cedula_uy_pdf_sign.cli import _cert_record
+
+    rec = _cert_record("5c10d3", _make_id_cert(), include_pem=True)
+    assert rec["id"] == "5c10d3"
+    assert rec["subject"]["common_name"] == "PEREZ JUAN" and rec["subject"]["serial_number"] == "DNI123"
+    assert rec["issuer"]["common_name"] == "AC MI"
+    assert rec["certificate_serial"] == "78191"
+    assert rec["digital_signature"] is True
+    assert rec["pem"].startswith("-----BEGIN CERTIFICATE-----")
+    assert "pem" not in _cert_record("5c10d3", _make_id_cert(), include_pem=False)
+
+
+def test_redact_cert_record_hides_holder_keeps_issuer():
+    from cedula_uy_pdf_sign.cli import _cert_record, _redact_cert_record
+
+    red = _redact_cert_record(_cert_record("5c10d3", _make_id_cert(), include_pem=True))
+    assert red["subject"]["common_name"] == "[REDACTED]"
+    assert red["subject"]["serial_number"] == "[REDACTED]"
+    assert red["subject"]["country"] == "UY"          # not personal -> kept
+    assert red["certificate_serial"] == "[REDACTED]"
+    assert red["pem"] == "[REDACTED]"
+    assert red["issuer"]["common_name"] == "AC MI"    # issuer (public CA) kept
+
+
+def test_list_certs_redact_with_raw_pem_errors_before_card():
+    # The guard fires before any PKCS#11 access, so this is card-independent.
+    result = runner.invoke(app, ["list-certs", "--pem", "--redact"])
+    assert result.exit_code == 1
+    assert "redact has no effect on raw --pem" in result.output
+
+
+def test_image_opacity_warning_only_outside_background(capsys):
+    from cedula_uy_pdf_sign.cli import _warn_image_opacity_unused
+    from cedula_uy_pdf_sign.constants import DEFAULT_IMAGE_OPACITY, ImageMode
+
+    img = "sig.png"
+    # Non-default opacity in a non-background mode -> warns.
+    _warn_image_opacity_unused(img, ImageMode.only, 0.5)
+    assert "only applies to --image-mode background" in capsys.readouterr().err
+    # Background mode, default opacity, or no image -> silent.
+    _warn_image_opacity_unused(img, ImageMode.background, 0.5)
+    _warn_image_opacity_unused(img, ImageMode.side, DEFAULT_IMAGE_OPACITY)
+    _warn_image_opacity_unused(None, ImageMode.only, 0.9)
+    assert capsys.readouterr().err == ""
+
+
 def test_verify_autodetect_xml_dispatch(tmp_path):
     # A valid XML without a <ds:Signature> proves the XML branch is wired (verify_xml -> INVALID).
     xml = tmp_path / "u.xml"

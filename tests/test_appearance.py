@@ -90,6 +90,15 @@ class TestImageAppearance:
             make_appearance_pdf(str(tmp_path / "x.pdf"), signer="X", cert_serial="1", ts="t",
                                 issuer="i", image_path=str(bad), image_mode=ImageMode.only)
 
+    def test_faded_image_is_a_pale_watermark(self, sample_png):
+        from PIL import ImageStat
+
+        from cedula_uy_pdf_sign.appearance import _faded_image
+
+        faded = _faded_image(str(sample_png), 0.2)
+        mean = sum(ImageStat.Stat(faded).mean) / 3  # overall brightness across R/G/B
+        assert mean > 200  # blended ~80% toward white -> a faint watermark (renderer-independent)
+
 
 class TestEnsureOutputParent:
     def test_creates_missing_directory(self, tmp_path):

@@ -75,24 +75,30 @@ def split_signer_name(signer: str, max_width: float | None = None) -> list[str]:
     return lines
 
 
+def _faded_image(image_path, opacity: float):
+    """Return a PIL image blended toward white by `opacity` (a deterministic watermark, baked
+    into the pixels, so it does not rely on the PDF renderer honouring image alpha)."""
+    from PIL import Image
+
+    img = Image.open(image_path).convert("RGBA")
+    white = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    on_white = Image.alpha_composite(white, img)          # resolve transparency over white
+    return Image.blend(white, on_white, opacity).convert("RGB")
+
+
 def _draw_image_fit(c, image_path, x, y, w, h, opacity: float = 1.0) -> None:
     """Draw an image inside the (x, y, w, h) box, preserving aspect ratio and centered.
     `opacity` < 1 fades it (for the background watermark). Raises a clear error on a bad image."""
     try:
-        img = ImageReader(image_path)
+        source = _faded_image(image_path, opacity) if opacity < 1.0 else image_path
+        img = ImageReader(source)
     except Exception as exc:
         raise RuntimeError(f"could not load image '{image_path}': {exc}") from exc
-    c.saveState()
-    if opacity < 1.0:
-        c.setFillAlpha(opacity)
-        c.setStrokeAlpha(opacity)
     try:
         c.drawImage(img, x, y, width=w, height=h,
                     preserveAspectRatio=True, anchor="c", mask="auto")
     except Exception as exc:
         raise RuntimeError(f"could not draw image '{image_path}': {exc}") from exc
-    finally:
-        c.restoreState()
 
 
 def make_appearance_pdf(
@@ -135,11 +141,14 @@ def make_appearance_pdf(
 
     if draw_text:
         c.setFont(STAMP_FONT_NAME, STAMP_FONT_SIZE)
+        # Wrap every line to text_max_width so nothing clips in the narrower `side` column
+        # (in the default full-width layout these stay on a single line, unchanged).
+        title_lines = wrap_line("Firma electrónica avanzada, UY", STAMP_FONT_NAME, STAMP_FONT_SIZE, text_max_width)
         signer_lines = split_signer_name(signer, text_max_width)
         issuer_lines = wrap_line(issuer, STAMP_FONT_NAME, STAMP_FONT_SIZE, text_max_width)
 
         lines = [
-            "Firma electrónica avanzada, UY",
+            *title_lines,
             *signer_lines,
             f"Documento: {cert_serial}",
             f"Fecha: {ts}",

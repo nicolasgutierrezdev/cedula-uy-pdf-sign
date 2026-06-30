@@ -28,7 +28,12 @@ from pyhanko.sign.pkcs11 import PKCS11Signer
 from pyhanko.sign.timestamps import HTTPTimeStamper
 
 from cedula_uy_pdf_sign.appearance import ensure_output_parent, make_appearance_pdf
-from cedula_uy_pdf_sign.cert_utils import get_common_name, normalize_issuer_name, cert_not_after
+from cedula_uy_pdf_sign.cert_utils import (
+    cert_not_after,
+    get_common_name,
+    name_fields,
+    normalize_issuer_name,
+)
 from cedula_uy_pdf_sign.constants import (
     APPEARANCE_HEIGHT,
     APPEARANCE_WIDTH,
@@ -232,6 +237,15 @@ def _build_timestamper(
     return HTTPTimeStamper(tsa_url, auth=auth, headers=headers)
 
 
+def _warn_image_opacity_unused(image, image_mode, image_opacity) -> None:
+    """--image-opacity only affects background mode; warn (once) if it was set for another mode."""
+    if image and image_mode != ImageMode.background and image_opacity != DEFAULT_IMAGE_OPACITY:
+        typer.secho(
+            "Note: --image-opacity only applies to --image-mode background; it is ignored here.",
+            fg=typer.colors.YELLOW, err=True,
+        )
+
+
 def _sign_one_pdf(
     *,
     input_pdf: Path,
@@ -382,6 +396,41 @@ def list_tokens(
 # Subcommand: list-certs
 # ---------------------------------------------------------------------------
 
+def _cert_digital_signature(cert) -> Optional[bool]:
+    try:
+        return bool(cert.extensions.get_extension_for_class(x509.KeyUsage).value.digital_signature)
+    except x509.ExtensionNotFound:
+        return None
+
+
+def _cert_record(obj_id_hex: str, cert, include_pem: bool) -> dict:
+    rec = {
+        "id": obj_id_hex,
+        "subject": name_fields(cert.subject),
+        "issuer": name_fields(cert.issuer),
+        "certificate_serial": format(cert.serial_number, "X"),
+        "not_after": cert_not_after(cert),
+        "digital_signature": _cert_digital_signature(cert),
+    }
+    if include_pem:
+        rec["pem"] = cert.public_bytes(Encoding.PEM).decode().strip()
+    return rec
+
+
+def _redact_cert_record(rec: dict) -> dict:
+    """Hide the cardholder's personal data for a shareable listing. The issuer (a public CA) is
+    kept; the certificate serial and the PEM identify the holder, so they are hidden too."""
+    out = dict(rec)
+    out["subject"] = dict(rec["subject"])
+    for k in ("common_name", "serial_number"):
+        if out["subject"].get(k):
+            out["subject"][k] = "[REDACTED]"
+    out["certificate_serial"] = "[REDACTED]"
+    if "pem" in out:
+        out["pem"] = "[REDACTED]"
+    return out
+
+
 @app.command("list-certs")
 def list_certs(
     pkcs11_lib: str = typer.Option(
@@ -409,49 +458,74 @@ def list_certs(
         help="Output the certificate(s) as PEM instead of the human listing (pipeable, e.g. to "
              "'openssl x509 -text'). This is your leaf certificate, not a --ca-file trust anchor.",
     ),
+    json_output: bool = typer.Option(
+        False, "--json",
+        help="Emit the certificate list as a single JSON object (schema_version 1); with --pem, "
+             "each entry also includes a 'pem' field.",
+    ),
+    json_pretty: bool = typer.Option(
+        False, "--json-pretty",
+        help="Like --json but indented for humans (implies --json).",
+    ),
+    redact: bool = typer.Option(
+        False, "--redact",
+        help="Hide personal data (subject common name, document number, certificate serial and "
+             "PEM) for sharing; the issuer (a public CA) is kept.",
+    ),
 ) -> None:
-    """List all certificates available on the token (with --pem, dump their PEM instead)."""
+    """List the certificates on the token: human-readable, --pem, or --json."""
     try:
+        json_output = json_output or json_pretty
+        if redact and pem and not json_output:
+            raise RuntimeError(
+                "--redact has no effect on raw --pem output (a certificate cannot be partially "
+                "redacted); use --json --redact, or drop --pem."
+            )
+
         lib = load_pkcs11_lib(pkcs11_lib)
         token = find_token(lib, token_label)
         final_pin = None if pin_source is None else get_pin(pin_source, pin_env_var, pin_fd)
 
+        entries = []
         with token.open(user_pin=final_pin) as session:
-            found = False
             for cert_obj in iter_cert_objects(session):
                 try:
                     obj_id = cert_obj[pkcs11.Attribute.ID]
-                    cert_der = cert_obj[pkcs11.Attribute.VALUE]
-                    cert = x509.load_der_x509_certificate(cert_der)
+                    cert = x509.load_der_x509_certificate(cert_obj[pkcs11.Attribute.VALUE])
                 except Exception:
                     continue
+                entries.append((obj_id.hex(), cert))
 
-                found = True
-                if pem:
-                    typer.echo(cert.public_bytes(Encoding.PEM).decode().rstrip())
-                    continue
+        if json_output:
+            records = [_cert_record(oid, cert, include_pem=pem) for oid, cert in entries]
+            if redact:
+                records = [_redact_cert_record(r) for r in records]
+            typer.echo(_json_dumps(
+                {"schema_version": _JSON_SCHEMA_VERSION, "certificates": records}, json_pretty))
+            return
 
-                subject_cn = get_common_name(cert.subject)
-                issuer_cn = normalize_issuer_name(get_common_name(cert.issuer))
-                serial = format(cert.serial_number, "X")
-                not_after = cert_not_after(cert)
-                try:
-                    ku = cert.extensions.get_extension_for_class(x509.KeyUsage)
-                    digital_sig = "yes" if ku.value.digital_signature else "no"
-                except x509.ExtensionNotFound:
-                    digital_sig = "?"
+        if pem:
+            for _, cert in entries:
+                typer.echo(cert.public_bytes(Encoding.PEM).decode().rstrip())
+            if not entries:
+                typer.secho("No certificates found in the token.", fg=typer.colors.YELLOW, err=True)
+            return
 
-                typer.echo(
-                    f"ID:                {obj_id.hex()}\n"
-                    f"Subject:           {subject_cn}\n"
-                    f"Issuer:            {issuer_cn}\n"
-                    f"Serial:            {serial}\n"
-                    f"Valid until:       {not_after}\n"
-                    f"Digital signature: {digital_sig}\n"
-                )
-
-            if not found:
-                typer.echo("No certificates found in the token.")
+        if not entries:
+            typer.echo("No certificates found in the token.")
+            return
+        for obj_id_hex, cert in entries:
+            subject = "[REDACTED]" if redact else get_common_name(cert.subject)
+            serial = "[REDACTED]" if redact else format(cert.serial_number, "X")
+            ds = _cert_digital_signature(cert)
+            typer.echo(
+                f"ID:                {obj_id_hex}\n"
+                f"Subject:           {subject}\n"
+                f"Issuer:            {normalize_issuer_name(get_common_name(cert.issuer))}\n"
+                f"Serial:            {serial}\n"
+                f"Valid until:       {cert_not_after(cert)}\n"
+                f"Digital signature: {'yes' if ds else ('?' if ds is None else 'no')}\n"
+            )
 
     except Exception as exc:
         typer.secho(f"Error: {_format_error(exc)}", fg=typer.colors.RED, err=True)
@@ -499,6 +573,7 @@ def sign_pdf(
         output_pdf = input_pdf.with_stem(input_pdf.stem + "_firmado")
     try:
         # --- Pre-flight checks ---
+        _warn_image_opacity_unused(image, image_mode, image_opacity)
         timestamper = _build_timestamper(
             tsa_url=tsa_url,
             tsa_user=tsa_user,
@@ -655,6 +730,7 @@ def sign_pdf_batch(
 ) -> None:
     """Sign multiple PDFs with a single PKCS#11 session (batch mode)."""
     try:
+        _warn_image_opacity_unused(image, image_mode, image_opacity)
         timestamper = _build_timestamper(
             tsa_url=tsa_url,
             tsa_user=tsa_user,
@@ -1662,17 +1738,21 @@ def verify_any_cmd(
 
 def _detect_signature_kind(path: Path) -> str:
     """Detect a signed file's format by content: "pdf", "xml" (XAdES) or "cms" (detached
-    .p7s in DER). Raises ValueError if none match."""
+    .p7s in DER). Raises ValueError if none match.
+
+    Only a 1 KB prefix is read to recognise PDF or XML; the full file is read only for the CMS
+    (DER) case, which is a small detached ``.p7s`` (so a large signed PDF is not read twice)."""
     from asn1crypto import cms as asn1cms
 
-    raw = path.read_bytes()
-    if not raw:
-        raise ValueError("file is empty")
-    if raw[:1024].find(b"%PDF-") != -1:
-        return "pdf"
-    head = raw.lstrip(b"\xef\xbb\xbf").lstrip()      # skip a UTF-8 BOM and leading whitespace
-    if head[:1] == b"<":
-        return "xml"
+    with path.open("rb") as f:
+        head = f.read(1024)
+        if not head:
+            raise ValueError("file is empty")
+        if head.find(b"%PDF-") != -1:
+            return "pdf"
+        if head.lstrip(b"\xef\xbb\xbf").lstrip()[:1] == b"<":   # UTF-8 BOM + leading whitespace
+            return "xml"
+        raw = head + f.read()   # not PDF/XML: read the rest and try to parse it as CMS DER
     try:
         ci = asn1cms.ContentInfo.load(raw)
         if ci["content_type"].native == "signed_data":

@@ -90,6 +90,7 @@ def test_tampered_timestamp_fails_only_the_timestamp_check():
     result = verify_xml(tampered, trust_roots=None)
     ts = _check(result, TS_CHECK)
     assert ts is not None and not ts.ok
-    assert result.indication == "INVALID"
-    # The main signature checks are untouched (timestamp is in UnsignedProperties).
+    # The timestamp is an unsigned property: a broken timestamp holds the result at INDETERMINATE
+    # (not INVALID) and the main signature checks stay intact.
+    assert result.indication == "INDETERMINATE"
     assert _check(result, "SignedInfo signature (RSA-SHA256)").ok

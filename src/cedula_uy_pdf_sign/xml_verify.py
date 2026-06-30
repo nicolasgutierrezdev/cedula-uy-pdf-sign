@@ -169,12 +169,15 @@ def verify_xml(
         ok = (cd.text or "").strip() == _sha256_b64(cert_der)
         checks.append(Check("SigningCertificate binding", ok))
 
-    # XAdES-T: validate the signature timestamp if present (no-op for plain XAdES-BES).
-    ts_check = _verify_timestamp(sig)
+    # Core integrity (the checks above) decides INVALID. The XAdES-T timestamp is an *unsigned*
+    # property, so a problem with it must never make the core signature INVALID nor block chain
+    # validation; at worst it holds the result at INDETERMINATE.
+    level1_ok = all(c.ok for c in checks)
+
+    ts_check = _verify_timestamp(sig)   # None for plain XAdES-BES
     if ts_check is not None:
         checks.append(ts_check)
-
-    level1_ok = all(c.ok for c in checks)
+    timestamp_ok = ts_check is None or ts_check.ok
 
     # Level 2: certificate chain
     trusted = False
@@ -186,6 +189,8 @@ def verify_xml(
 
     if not level1_ok:
         indication = "INVALID"
+    elif not timestamp_ok:
+        indication = "INDETERMINATE"  # signature intact, but the timestamp does not check out
     elif trust_roots:
         indication = "VALID" if trusted else "INDETERMINATE"
     else:
