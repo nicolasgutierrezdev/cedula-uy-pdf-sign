@@ -127,6 +127,9 @@ uv tool install cedula-uy-pdf-sign
 
 The CLI tool is invoked as `firmauy`.
 
+For task-oriented, copy-pasteable recipes (sign and verify, privacy/debug, automation, `jq`
+pipelines), see the **[cookbook](docs/cookbook.md)**.
+
 ### CLI help
 
 Use `--help` on any command to see all available options:
@@ -946,6 +949,16 @@ use it are documented in **[docs/development.md](docs/development.md)**.
 Bug reports, questions, and pull requests are welcome.
 
 Feel free to open an issue on GitHub.
+
+### Cookbook contributions welcome
+
+Cookbook recipes (see **[docs/cookbook.md](docs/cookbook.md)**) are welcome, and one of the best ways
+to help: they open the project to people who will not necessarily touch the PKCS#11, APDU or XAdES
+internals but can still share real, useful workflows. A good recipe shows a real workflow with
+minimal commands, the expected output, privacy notes, and the environment where it was tested.
+
+Please do not include real names, document numbers, MRZ data, certificates, photos, or unredacted
+verification output. Use `--redact` whenever sharing command output.
 
 ## Acknowledgements
 
