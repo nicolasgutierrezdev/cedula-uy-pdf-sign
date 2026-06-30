@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "firmauy"
-version = "0.9.0"
+version = "1.0.0"
 authors = [
-  { name = "Carlos A. Planchón", email = "carlosandresplanchonprestes@gmail.com" }
+  { name = "Carlos A. Planchón", email = "carlosplanchon@cognitialabs.com" }
 ]
 description = "Sign and verify PDF (PAdES), XML (XAdES) and arbitrary files (CAdES/.p7s) with a Uruguayan national ID card (cédula) via PKCS#11. Standards-based; not affiliated with AGESIC."
 readme = "README.md"
