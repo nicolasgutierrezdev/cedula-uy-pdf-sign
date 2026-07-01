@@ -7,9 +7,10 @@ import os
 import shutil
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, List, NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
 import pkcs11
@@ -201,6 +202,40 @@ def _print_signing_info(
     typer.echo(f"Certificate serial:  {cert_serial}")
     if tsa_url:
         typer.echo(f"TSA:                 {tsa_url}")
+
+
+class _SigningContext(NamedTuple):
+    """What _signing_session yields: the open PKCS#11 session, the selected certificate and its
+    display fields, shared by every sign-* command."""
+    session: object
+    key_id: bytes
+    cert: "x509.Certificate"
+    signer_name: str
+    issuer_name: str
+    cert_serial: str
+
+
+@contextmanager
+def _signing_session(*, pkcs11_lib, token_label, cert_id, pin_source, pin_env_var, pin_fd,
+                     tsa_url, quiet):
+    """Open a PKCS#11 session, select the signing certificate and print the identity block, then
+    yield everything the sign-* commands need. The session is closed on exit. Callers keep their own
+    (fail-fast, pre-PIN) validation and timestamper build."""
+    lib = load_pkcs11_lib(pkcs11_lib)
+    token = find_token(lib, token_label)
+    final_pin = get_pin(pin_source, pin_env_var, pin_fd)
+    with token.open(user_pin=final_pin) as session:
+        key_id, cert = select_certificate(session, cert_id)
+        signer_name = get_common_name(cert.subject)
+        issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
+        cert_serial = format(cert.serial_number, "X")
+        token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
+        _print_signing_info(
+            token_label_display=token_label_display, signer_name=signer_name,
+            issuer_name=issuer_name, key_id=key_id, cert_serial=cert_serial,
+            tsa_url=tsa_url, quiet=quiet,
+        )
+        yield _SigningContext(session, key_id, cert, signer_name, issuer_name, cert_serial)
 
 
 # Header names whose value is usually a secret. If passed literally via --tsa-header the value
@@ -709,28 +744,11 @@ def sign_pdf(
                 err=True,
             )
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
 
             pkcs11_signer = PKCS11Signer(
                 pkcs11_session=session,
@@ -889,28 +907,11 @@ def sign_pdf_batch(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
             typer.echo(f"Files to sign:       {len(jobs)}")
             typer.echo("")
 
@@ -1126,26 +1127,11 @@ def sign_xml_cmd(
             tsa_header_env=tsa_header_env,
         )
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
 
             _sign_one_xml(
                 input_xml=input_xml,
@@ -1239,26 +1225,11 @@ def sign_xml_batch(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
             typer.echo(f"Files to sign:       {len(jobs)}")
             typer.echo("")
 
@@ -1349,26 +1320,11 @@ def sign_any(
                 "Use --overwrite to overwrite it."
             )
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
 
             pkcs11_signer = PKCS11Signer(
                 pkcs11_session=session,
@@ -1474,26 +1430,11 @@ def sign_any_batch(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display,
-                signer_name=signer_name,
-                issuer_name=issuer_name,
-                key_id=key_id,
-                cert_serial=cert_serial,
-                tsa_url=tsa_url,
-                quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
             typer.echo(f"Files to sign:       {len(jobs)}")
             typer.echo("")
 
@@ -1668,21 +1609,11 @@ def sign_cmd(
             tsa_header=tsa_header, tsa_header_env=tsa_header_env,
         )
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display, signer_name=signer_name,
-                issuer_name=issuer_name, key_id=key_id, cert_serial=cert_serial,
-                tsa_url=tsa_url, quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
 
             if kind == "pdf":
                 pkcs11_signer = PKCS11Signer(pkcs11_session=session, cert_id=key_id, key_id=key_id)
@@ -1855,21 +1786,11 @@ def sign_batch(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        lib = load_pkcs11_lib(pkcs11_lib)
-        token = find_token(lib, token_label)
-        final_pin = get_pin(pin_source, pin_env_var, pin_fd)
-
-        with token.open(user_pin=final_pin) as session:
-            key_id, cert = select_certificate(session, cert_id)
-            signer_name = get_common_name(cert.subject)
-            issuer_name = normalize_issuer_name(get_common_name(cert.issuer))
-            cert_serial = format(cert.serial_number, "X")
-            token_label_display = (getattr(token, "label", "") or "").strip() or "<no label>"
-            _print_signing_info(
-                token_label_display=token_label_display, signer_name=signer_name,
-                issuer_name=issuer_name, key_id=key_id, cert_serial=cert_serial,
-                tsa_url=tsa_url, quiet=quiet,
-            )
+        with _signing_session(
+            pkcs11_lib=pkcs11_lib, token_label=token_label, cert_id=cert_id,
+            pin_source=pin_source, pin_env_var=pin_env_var, pin_fd=pin_fd,
+            tsa_url=tsa_url, quiet=quiet,
+        ) as (session, key_id, cert, signer_name, issuer_name, cert_serial):
             typer.echo(f"Files to sign:       {len(items)}")
             typer.echo("")
 

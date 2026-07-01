@@ -994,3 +994,34 @@ def test_sign_batch_no_false_collision_for_distinct_outputs(monkeypatch, tmp_pat
     assert r.exit_code == 0, r.output
     assert sorted(k for k, _ in calls) == ["cms", "pdf"]
     assert "Signed: 2/2" in r.output
+
+
+def test_signing_session_yields_context_and_respects_quiet(monkeypatch, capsys):
+    # The shared PKCS#11 bootstrap of every sign-* command: open the session, select the cert, print
+    # the identity block (unless --quiet), and yield the six values the command bodies unpack.
+    from firmauy import cli
+    monkeypatch.setattr(cli, "load_pkcs11_lib", lambda lib: object())
+    monkeypatch.setattr(cli, "find_token", lambda lib, label: _FakeToken())
+    monkeypatch.setattr(cli, "get_pin", lambda *a, **k: "1234")
+    monkeypatch.setattr(cli, "select_certificate", lambda session, cid: (b"\x01", _FakeCert()))
+    monkeypatch.setattr(cli, "get_common_name", lambda name: "SIGNER")
+    monkeypatch.setattr(cli, "normalize_issuer_name", lambda s: "ISSUER")
+
+    common = dict(pkcs11_lib="lib.so", token_label=None, cert_id=None,
+                  pin_source=None, pin_env_var=None, pin_fd=None, tsa_url=None)
+
+    # Not quiet: unpacks exactly like the command bodies, and prints the identity block.
+    with cli._signing_session(**common, quiet=False) as (
+        session, key_id, cert, signer_name, issuer_name, cert_serial
+    ):
+        assert session is not None and cert is not None
+        assert key_id == b"\x01"
+        assert (signer_name, issuer_name) == ("SIGNER", "ISSUER")
+        assert cert_serial == format(_FakeCert.serial_number, "X")     # "1A"
+    out = capsys.readouterr().out
+    assert "SIGNER" in out and "ISSUER" in out and "tok" in out         # identity block printed
+
+    # Quiet: yields the same context (attribute access too) but prints nothing identifying.
+    with cli._signing_session(**common, quiet=True) as ctx:
+        assert ctx.signer_name == "SIGNER" and ctx.cert_serial == "1A"
+    assert capsys.readouterr().out == ""                                # silent under --quiet
