@@ -8,6 +8,8 @@ import base64
 import hashlib
 import json
 
+import pytest
+
 from firmauy.card_reader import (
     card_to_json_obj,
     format_card_human,
@@ -55,6 +57,17 @@ def test_parse_doc_number():
     data = [0x5F, 0x01, 0x05] + list(b"12345")
     assert parse_doc_number(data) == "12345"
     assert parse_doc_number([0x00, 0x00]) is None
+
+
+def test_parse_bio_drops_field_whose_length_runs_past_buffer():
+    # A TLV declaring more bytes than remain must be dropped, not emitted as a truncated value.
+    good = _tlv(0x01, b"PEREZ")
+    truncated = [0x1F, 0x03, 0x20] + list(b"JUAN")   # claims 0x20 bytes, only 4 present
+    assert parse_bio(good + truncated) == {0x01: "PEREZ"}   # 0x03 omitted, not "JUAN"
+
+
+def test_parse_doc_number_none_when_length_runs_past_buffer():
+    assert parse_doc_number([0x5F, 0x01, 0x20] + list(b"123")) is None   # claims 0x20, only 3
 
 
 def test_parse_mrz_td1_three_lines():
@@ -170,6 +183,30 @@ def test_read_photo_end_to_end_with_fake_card():
 
     card = _FakeCard(bytes(_ber_tlv(b"\x3f\x01", _JPEG)))   # file 7004 as on the card
     assert read_photo(card) == _JPEG                        # full path: applet -> file -> JPEG
+
+
+class _StuckCard:
+    """A reader that reports a non-empty file size but keeps returning 0 bytes with a 90 00 success
+    status on READ BINARY. Without a no-progress guard this loops forever (offset never advances)."""
+
+    def __init__(self):
+        self.reads = 0
+
+    def transmit(self, apdu):
+        if apdu[:4] == [0x00, 0xA4, 0x00, 0x00]:          # SELECT FILE -> FCI with file size 16
+            return [0x6F, 0x04, 0x81, 0x02, 0x00, 0x10], 0x90, 0x00
+        if apdu[:2] == [0x00, 0xB0]:                       # READ BINARY -> success but no bytes
+            self.reads += 1
+            assert self.reads <= 2, "read_file looped on an empty successful READ BINARY"
+            return [], 0x90, 0x00
+        raise AssertionError(f"unexpected APDU: {apdu}")
+
+
+def test_read_file_bails_out_on_zero_byte_success_instead_of_looping():
+    from firmauy.card_reader import read_file
+
+    with pytest.raises(RuntimeError, match="no data"):
+        read_file(_StuckCard(), 0x7002)
 
 
 # --- photo JSON record (dimensions, metadata, redaction) --------------------

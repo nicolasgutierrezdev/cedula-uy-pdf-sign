@@ -304,6 +304,19 @@ def _detect_signature_kind_bytes(tmp_path, data: bytes) -> str:
     return _detect_signature_kind(p)
 
 
+def test_detect_signature_kind_bounds_the_cms_read(tmp_path, monkeypatch):
+    # A file beyond the CMS-detection cap is not a detached .p7s and must not be read/parsed whole.
+    import firmauy.cli as cli
+
+    p7s = tmp_path / "sig.p7s"
+    p7s.write_bytes(_software_p7s(b"hi"))              # a real, valid detached CMS
+    assert cli._detect_signature_kind(p7s) == "cms"    # detected normally under the real cap
+
+    monkeypatch.setattr(cli, "_CMS_DETECT_MAX_BYTES", 16)
+    with pytest.raises(ValueError, match="could not detect"):
+        cli._detect_signature_kind(p7s)                # same file now exceeds the (tiny) budget
+
+
 def test_verify_autodetect_cms_locates_original(tmp_path):
     data = b"auto-detected content\n"
     (tmp_path / "doc.bin").write_bytes(data)
@@ -406,6 +419,17 @@ def test_sign_pdf_invalid_image_fails_before_the_card(tmp_path):
     assert "not a valid image" in result.output
 
 
+def test_sign_pdf_rejects_malformed_cert_id_before_the_pin(tmp_path):
+    # A malformed --cert-id (odd-length hex) is validated up front in _signing_session, before the
+    # PKCS#11 module is loaded or the PIN is prompted, so it fails fast with a clear message instead
+    # of a cryptic bytes.fromhex ValueError after the PIN. No card / module needed for this to fire.
+    pdf = tmp_path / "in.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    result = runner.invoke(app, ["sign-pdf", str(pdf), "--cert-id", "ABC"])
+    assert result.exit_code == 1
+    assert "odd number of hex digits" in result.output
+
+
 def test_batch_output_preserves_subdirs_and_avoids_collisions(tmp_path):
     from pathlib import Path
 
@@ -424,6 +448,106 @@ def test_batch_output_preserves_subdirs_and_avoids_collisions(tmp_path):
     o1 = _batch_output(indir / "d1" / "a.pdf", indir, out, ".pdf", "_firmado")
     o2 = _batch_output(indir / "d2" / "a.pdf", indir, out, ".pdf", "_firmado")
     assert o1 != o2
+
+
+def test_raise_on_output_collisions():
+    from pathlib import Path
+
+    from firmauy.cli import _raise_on_output_collisions
+
+    # Distinct outputs -> no raise.
+    _raise_on_output_collisions([(Path("d1/x"), Path("out/x1")), (Path("d2/y"), Path("out/y1"))])
+    # Two inputs mapping to the same output -> raise, naming both offenders.
+    with pytest.raises(RuntimeError, match="Output path collision"):
+        _raise_on_output_collisions([(Path("d1/x"), Path("out/x")), (Path("d2/x"), Path("out/x"))])
+
+
+@pytest.mark.parametrize("cmd, fname", [
+    ("sign-pdf-batch", "report.pdf"),
+    ("sign-xml-batch", "report.xml"),
+    ("sign-any-batch", "report.bin"),
+])
+def test_batch_rejects_output_collision_before_card(tmp_path, cmd, fname):
+    # Two same-named inputs in different folders map to one output. Every per-type batch must refuse
+    # this up front (even with --overwrite, which would otherwise silently drop one signed output),
+    # before creating the output dir or touching the card -- like the unified sign-batch already did.
+    d1 = tmp_path / "d1"
+    d2 = tmp_path / "d2"
+    d1.mkdir()
+    d2.mkdir()
+    (d1 / fname).write_bytes(b"%PDF-1.7\n")
+    (d2 / fname).write_bytes(b"%PDF-1.7\n")
+    out = tmp_path / "out"
+
+    result = runner.invoke(app, [cmd, str(d1 / fname), str(d2 / fname),
+                                 "--output-dir", str(out), "--overwrite"])
+    assert result.exit_code == 1, result.output
+    assert "Output path collision" in result.output
+    assert not out.exists()   # refused before the output dir was created / the card was touched
+
+
+def test_atomic_write_bytes_writes_and_cleans_up_temp(tmp_path):
+    from firmauy.cli import _atomic_write_bytes
+
+    out = tmp_path / "o.bin"
+    _atomic_write_bytes(out, b"hello")
+    assert out.read_bytes() == b"hello"
+    assert not (tmp_path / "o.bin.part").exists()   # the sibling temp is gone after os.replace
+
+
+def test_atomic_write_bytes_replaces_symlink_without_writing_through(tmp_path):
+    # The XML/CMS signed outputs go through _atomic_write_bytes, which must REPLACE a pre-existing
+    # output symlink with the real file -- not follow it and clobber its target (what write_bytes did).
+    from firmauy.cli import _atomic_write_bytes
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"DO NOT TOUCH")
+    link = tmp_path / "out.xml"
+    link.symlink_to(target)
+
+    _atomic_write_bytes(link, b"<signed/>")
+
+    assert not link.is_symlink()                    # symlink replaced by a regular file
+    assert link.read_bytes() == b"<signed/>"
+    assert target.read_bytes() == b"DO NOT TOUCH"   # the symlink target was never written through
+    assert not (tmp_path / "out.xml.part").exists()
+
+
+class _RecordingConn:
+    def __init__(self):
+        self.disconnected = False
+
+    def disconnect(self):
+        self.disconnected = True
+
+
+def test_fetch_identity_disconnects_the_reader(monkeypatch):
+    import firmauy.cli as cli
+
+    conn = _RecordingConn()
+    monkeypatch.setattr(cli, "open_reader", lambda reader_name=None: conn)
+    monkeypatch.setattr(cli, "read_card", lambda c: {"bio": {}, "doc_num": None, "mrz": None})
+
+    result = runner.invoke(app, ["fetch-identity", "--json"])
+    assert result.exit_code == 0, result.output
+    assert conn.disconnected is True   # the PC/SC connection is released, like fetch-photo
+
+
+def test_fetch_identity_disconnects_even_when_read_fails(monkeypatch):
+    # The disconnect lives in a finally, so a read error must still release the reader.
+    import firmauy.cli as cli
+
+    conn = _RecordingConn()
+
+    def boom(_c):
+        raise RuntimeError("read failed")
+
+    monkeypatch.setattr(cli, "open_reader", lambda reader_name=None: conn)
+    monkeypatch.setattr(cli, "read_card", boom)
+
+    result = runner.invoke(app, ["fetch-identity"])
+    assert result.exit_code == 1
+    assert conn.disconnected is True   # released despite the read error
 
 
 def test_image_opacity_warning_only_outside_background(capsys):

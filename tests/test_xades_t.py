@@ -61,7 +61,7 @@ def test_xades_t_timestamp_present_and_verifies():
     signed = _sign(timestamper=_dummy_timestamper())
     assert b"SignatureTimeStamp" in signed
 
-    result = verify_xml(signed, trust_roots=None)
+    result = verify_xml(signed, trust_roots=None)[0]
     ts = _check(result, TS_CHECK)
     assert ts is not None and ts.ok
     assert "genTime" in ts.detail
@@ -76,7 +76,7 @@ def test_xades_bes_has_no_timestamp_check():
     signed = _sign(timestamper=None)  # plain XAdES-BES
     assert b"SignatureTimeStamp" not in signed
 
-    result = verify_xml(signed, trust_roots=None)
+    result = verify_xml(signed, trust_roots=None)[0]
     assert _check(result, TS_CHECK) is None
     assert result.indication == "INDETERMINATE"
 
@@ -90,7 +90,7 @@ def test_tampered_timestamp_fails_only_the_timestamp_check():
     data[pos] = ord("B") if data[pos] != ord("B") else ord("A")
     tampered = bytes(data)
 
-    result = verify_xml(tampered, trust_roots=None)
+    result = verify_xml(tampered, trust_roots=None)[0]
     ts = _check(result, TS_CHECK)
     assert ts is not None and not ts.ok
     # The timestamp is an unsigned property: a broken timestamp holds the result at INDETERMINATE
@@ -161,13 +161,13 @@ def test_tsa_ca_enables_ltv_evaluation_at_gentime():
     later = now + datetime.timedelta(days=2)   # the signer cert is expired at this "now"
 
     # Without --tsa-ca: chain evaluated at `later` -> signer cert expired -> INDETERMINATE.
-    r_no = verify_xml(signed, trust_roots=[signer_ca], at_time=later)
+    r_no = verify_xml(signed, trust_roots=[signer_ca], at_time=later)[0]
     assert r_no.indication == "INDETERMINATE"
     assert TS_CHECK_NAME in {c.name for c in r_no.checks}   # binding-only, TSA not validated
 
     # With --tsa-ca: the timestamp is trust-validated, so the signer cert is evaluated at the
     # trusted genTime (when it was still valid) -> VALID (long-term validation).
-    r_yes = verify_xml(signed, trust_roots=[signer_ca], at_time=later, tsa_trust_roots=[tsa_ca])
+    r_yes = verify_xml(signed, trust_roots=[signer_ca], at_time=later, tsa_trust_roots=[tsa_ca])[0]
     assert r_yes.indication == "VALID", [(c.name, c.detail) for c in r_yes.checks]
     ts = _check(r_yes, TS_CHECK_NAME_TRUSTED)
     assert ts is not None and ts.ok and "trusted" in ts.detail
@@ -187,7 +187,7 @@ def test_tsa_ca_wrong_anchor_does_not_trust_timestamp():
     other_ca, _, _ = _ca_and_leaf(
         "OTHER", leaf_not_before=now - datetime.timedelta(days=1),
         leaf_not_after=now + datetime.timedelta(days=1))
-    result = verify_xml(signed, trust_roots=[signer_ca], tsa_trust_roots=[other_ca])
+    result = verify_xml(signed, trust_roots=[signer_ca], tsa_trust_roots=[other_ca])[0]
     ts = _check(result, TS_CHECK_NAME_TRUSTED)
     assert ts is not None and not ts.ok          # TSA validation failed
     assert "chain" in ts.detail

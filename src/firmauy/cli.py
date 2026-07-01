@@ -10,7 +10,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, List, NamedTuple, Optional
+from typing import Annotated, Iterable, List, NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
 import pkcs11
@@ -65,6 +65,7 @@ from firmauy.pkcs11_utils import (
     get_private_key,
     iter_cert_objects,
     load_pkcs11_lib,
+    normalize_cert_id_hex,
     select_certificate,
 )
 from firmauy.national_ca import (
@@ -221,6 +222,10 @@ def _signing_session(*, pkcs11_lib, token_label, cert_id, pin_source, pin_env_va
     """Open a PKCS#11 session, select the signing certificate and print the identity block, then
     yield everything the sign-* commands need. The session is closed on exit. Callers keep their own
     (fail-fast, pre-PIN) validation and timestamper build."""
+    # Validate the hex cert ID up front: a malformed --cert-id must fail before we prompt for the
+    # PIN (an incorrect PIN counts toward the card's retry limit), not later inside select_certificate.
+    if cert_id is not None:
+        normalize_cert_id_hex(cert_id)
     lib = load_pkcs11_lib(pkcs11_lib)
     token = find_token(lib, token_label)
     final_pin = get_pin(pin_source, pin_env_var, pin_fd)
@@ -356,6 +361,41 @@ def _batch_output(p: Path, input_dir: Optional[Path], output_dir: Path, ext: str
     return output_dir / p.relative_to(input_dir).parent / name
 
 
+def _raise_on_output_collisions(jobs: Iterable[tuple[Path, Path]]) -> None:
+    """Fail fast (before the PIN) if two inputs map to the same output path. Without this a batch
+    silently overwrites an earlier output with --overwrite, or fails mid-run without it. ``jobs`` is
+    an iterable of (input_path, output_path)."""
+    seen: dict[Path, Path] = {}
+    collisions: list[tuple[Path, Path, Path]] = []
+    for input_path, output in jobs:
+        prior = seen.get(output)
+        if prior is None:
+            seen[output] = input_path
+        else:
+            collisions.append((prior, input_path, output))
+    if collisions:
+        detail = "\n".join(f"  '{a}' and '{b}' both map to {out}" for a, b, out in collisions)
+        raise RuntimeError(
+            "Output path collision: these inputs would write to the same file:\n"
+            f"{detail}\n"
+            "Rename an input, change --suffix, or sign the colliding files separately."
+        )
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically: write a sibling ``.part`` then os.replace() it into
+    place. os.replace() *replaces* an output symlink with the file instead of writing through it (so
+    a pre-existing symlink at ``path`` cannot redirect the bytes elsewhere), and an interrupted write
+    never leaves a truncated file at ``path`` -- the same guarantees the PDF signing path relies on."""
+    tmp = path.with_name(path.name + ".part")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _sign_one_pdf(
     *,
     input_pdf: Path,
@@ -466,7 +506,7 @@ def _sign_one_pdf(
             # Sign into a sibling temp file, then atomically move it into place. A failure
             # mid-signing (e.g. the card is pulled) then never leaves a partial/corrupt file at
             # output_pdf, and with --overwrite it never destroys the previous good output either.
-            # (The XML/CMS paths are already safe: they build the bytes fully, then write.)
+            # (The XML/CMS paths get the same guarantee via _atomic_write_bytes.)
             # os.replace also *replaces* an output symlink with the signed file instead of writing
             # through it, so a pre-created symlink cannot redirect the output to another location.
             tmp_out = output_pdf.with_name(output_pdf.name + ".part")
@@ -905,6 +945,7 @@ def sign_pdf_batch(
                 err=True,
             )
 
+        _raise_on_output_collisions(jobs)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with _signing_session(
@@ -1020,7 +1061,7 @@ def _sign_one_xml(
         signing_time=signing_time,
         timestamper=timestamper,
     )
-    output_xml.write_bytes(signed)
+    _atomic_write_bytes(output_xml, signed)
 
 
 # ---------------------------------------------------------------------------
@@ -1049,7 +1090,7 @@ def _sign_one_cms(
     ensure_output_parent(output_p7s)
     with input_file.open("rb") as f:
         p7s = sign_cms_detached(f, signer=pkcs11_signer, timestamper=timestamper)
-    output_p7s.write_bytes(p7s)
+    _atomic_write_bytes(output_p7s, p7s)
 
 
 # ---------------------------------------------------------------------------
@@ -1073,7 +1114,8 @@ def _verify_after_pdf(output_pdf: Path) -> None:
 
 
 def _verify_after_xml(output_xml: Path) -> None:
-    _check_post_sign(verify_xml(output_xml.read_bytes(), trust_roots=None))
+    # Only the signature we just appended (the last one); integrity, no trust.
+    _check_post_sign(verify_xml(output_xml.read_bytes(), trust_roots=None)[-1])
 
 
 def _verify_after_cms(input_file: Path, output_p7s: Path) -> None:
@@ -1223,6 +1265,7 @@ def sign_xml_batch(
             )
             raise typer.Exit(code=1)
 
+        _raise_on_output_collisions(jobs)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with _signing_session(
@@ -1428,6 +1471,7 @@ def sign_any_batch(
             )
             raise typer.Exit(code=1)
 
+        _raise_on_output_collisions(jobs)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with _signing_session(
@@ -1768,21 +1812,7 @@ def sign_batch(
         # silently overwrites with --overwrite, or errors mid-batch without it. PDF/XML outputs are
         # named by stem+suffix+ext, so same-stem inputs of different extensions that resolve to the
         # same kind collide (the CAdES <name>.p7s naming cannot).
-        seen: dict[Path, Path] = {}
-        collisions: list[tuple[Path, Path, Path]] = []
-        for input_path, _kind, output in jobs:
-            prior = seen.get(output)
-            if prior is None:
-                seen[output] = input_path
-            else:
-                collisions.append((prior, input_path, output))
-        if collisions:
-            detail = "\n".join(f"  '{a}' and '{b}' both map to {out}" for a, b, out in collisions)
-            raise RuntimeError(
-                "Output path collision: these inputs would write to the same file:\n"
-                f"{detail}\n"
-                "Rename an input, change --suffix, or sign the colliding files separately."
-            )
+        _raise_on_output_collisions((input_path, output) for input_path, _kind, output in jobs)
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2096,7 +2126,7 @@ def verify_xml_cmd(
         roots, intermediates = _resolve_trust_anchors(ca_file, no_trust)
         tsa_roots, tsa_others = _resolve_tsa_anchors(tsa_ca)
 
-        result = verify_xml(
+        results = verify_xml(
             input_xml.read_bytes(),
             trust_roots=roots,
             intermediates=intermediates,
@@ -2105,7 +2135,7 @@ def verify_xml_cmd(
             tsa_other_certs=tsa_others,
         )
 
-        overall = _emit_verify([result], json_output, pretty=json_pretty, redact=redact)
+        overall = _emit_verify(results, json_output, pretty=json_pretty, redact=redact)
         if overall == "INVALID":
             raise typer.Exit(code=1)
         if overall == "INDETERMINATE":
@@ -2249,12 +2279,18 @@ def verify_any_cmd(
 # Subcommand: verify (auto-detect)
 # ---------------------------------------------------------------------------
 
+# A detached CMS/.p7s is small (signature + certs, a few KB). Cap how much _detect_signature_kind
+# reads when probing for CMS, so a large unrelated file is not slurped whole just to fail the parse.
+_CMS_DETECT_MAX_BYTES = 8 * 1024 * 1024
+
+
 def _detect_signature_kind(path: Path) -> str:
     """Detect a signed file's format by content: "pdf", "xml" (XAdES) or "cms" (detached
     .p7s in DER). Raises ValueError if none match.
 
-    Only a 1 KB prefix is read to recognise PDF or XML; the full file is read only for the CMS
-    (DER) case, which is a small detached ``.p7s`` (so a large signed PDF is not read twice)."""
+    Only a 1 KB prefix is read to recognise PDF or XML; for the CMS (DER) case the read is bounded to
+    _CMS_DETECT_MAX_BYTES -- a detached ``.p7s`` is small, so a larger file is not a detached
+    signature and is not read whole into memory."""
     from asn1crypto import cms as asn1cms
 
     with path.open("rb") as f:
@@ -2269,13 +2305,16 @@ def _detect_signature_kind(path: Path) -> str:
         # an XML or CMS that only *contains* the bytes "%PDF-" is not misdetected as a PDF.
         if start.startswith(b"%PDF-"):
             return "pdf"
-        raw = head + f.read()   # not PDF/XML: read the rest and try to parse it as CMS DER
-    try:
-        ci = asn1cms.ContentInfo.load(raw)
-        if ci["content_type"].native == "signed_data":
-            return "cms"
-    except Exception:
-        pass
+        # Not PDF/XML: read the rest (bounded) and try to parse it as detached CMS (DER). The +1
+        # lets an over-cap file produce len(raw) > cap so it is skipped rather than parsed truncated.
+        raw = head + f.read(max(0, _CMS_DETECT_MAX_BYTES - len(head)) + 1)
+    if len(raw) <= _CMS_DETECT_MAX_BYTES:
+        try:
+            ci = asn1cms.ContentInfo.load(raw)
+            if ci["content_type"].native == "signed_data":
+                return "cms"
+        except Exception:
+            pass
     raise ValueError("could not detect the signature type (not a PDF, XAdES XML or CMS/.p7s)")
 
 
@@ -2358,9 +2397,9 @@ def verify_cmd(
                                  check_revocation=check_revocation)
         elif kind == "xml":
             tsa_roots, tsa_others = _resolve_tsa_anchors(tsa_ca)
-            results = [verify_xml(input_file.read_bytes(), trust_roots=roots,
-                                  intermediates=intermediates, check_revocation=check_revocation,
-                                  tsa_trust_roots=tsa_roots, tsa_other_certs=tsa_others)]
+            results = verify_xml(input_file.read_bytes(), trust_roots=roots,
+                                 intermediates=intermediates, check_revocation=check_revocation,
+                                 tsa_trust_roots=tsa_roots, tsa_other_certs=tsa_others)
         else:  # cms / detached .p7s
             with orig.open("rb") as data:
                 results = [verify_cms(data, input_file.read_bytes(), trust_roots=roots,
@@ -2581,7 +2620,13 @@ def fetch_identity_cmd(
     try:
         json_output = json_output or json_pretty
         conn = open_reader(reader_name)
-        card = read_card(conn)
+        try:
+            card = read_card(conn)
+        finally:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
         if json_output:
             payload = {
                 "schema_version": _JSON_SCHEMA_VERSION,

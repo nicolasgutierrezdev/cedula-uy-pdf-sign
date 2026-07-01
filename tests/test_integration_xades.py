@@ -172,14 +172,14 @@ def test_verify_xml_integrity_and_tamper(softhsm_token, tmp_path):
 
     signed = output_xml.read_bytes()
     # Integrity holds; without trust anchors the chain is not evaluated -> INDETERMINATE.
-    res = verify_xml(signed, trust_roots=None)
+    res = verify_xml(signed, trust_roots=None)[0]
     assert res.indication == "INDETERMINATE"
     assert all(c.ok for c in res.checks), [(c.name, c.detail) for c in res.checks if not c.ok]
 
     # Tampering the signed document body breaks the reference digest -> INVALID.
     tampered = signed.replace(b"<n>1</n>", b"<n>2</n>", 1)
     assert tampered != signed
-    res_bad = verify_xml(tampered, trust_roots=None)
+    res_bad = verify_xml(tampered, trust_roots=None)[0]
     assert res_bad.indication == "INVALID"
 
 

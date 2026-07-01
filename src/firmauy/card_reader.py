@@ -73,6 +73,10 @@ def read_file(conn, fid: int) -> list:
         data, sw1, sw2 = conn.transmit([0x00, 0xB0, p1, p2, chunk])
         if (sw1, sw2) != (0x90, 0x00):
             raise RuntimeError(f"READ BINARY @{offset} failed: {sw1:02X} {sw2:02X}")
+        if not data:
+            # Success status but no bytes: offset would not advance -> infinite loop. Bail out
+            # instead of hanging on a misbehaving reader/card.
+            raise RuntimeError(f"READ BINARY @{offset} returned no data despite success status.")
         buf.extend(data)
         offset += len(data)
     return buf
@@ -87,6 +91,8 @@ def parse_bio(data: list) -> dict:
         if data[i] != 0x1F:
             break
         tag, length = data[i + 1], data[i + 2]
+        if i + 3 + length > len(data):
+            break   # declared length runs past the buffer: stop rather than emit a truncated value
         if length > 0:
             raw = bytes(data[i + 3: i + 3 + length])
             try:
@@ -101,6 +107,8 @@ def parse_doc_number(data: list) -> Optional[str]:
     """Extract document number from file 7001 (tag 5F01)."""
     if len(data) >= 4 and data[0] == 0x5F and data[1] == 0x01:
         length = data[2]
+        if 3 + length > len(data):
+            return None   # declared length runs past the buffer: unparseable, not a truncated value
         return bytes(data[3: 3 + length]).decode("ascii", errors="replace").strip()
     return None
 

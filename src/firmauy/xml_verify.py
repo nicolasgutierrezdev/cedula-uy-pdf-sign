@@ -39,8 +39,10 @@ from firmauy.xml_sign import (
 )
 
 
-def _leaf_cert(root) -> tuple:
-    el = root.find(f".//{_ds('X509Certificate')}")
+def _leaf_cert(sig) -> tuple:
+    """Load the leaf certificate from a single <ds:Signature>'s KeyInfo. Scoped to `sig` (not the
+    whole document) so each signature in a multi-signature document uses its own certificate."""
+    el = sig.find(f".//{_ds('X509Certificate')}")
     if el is None or not el.text:
         raise ValueError("no X509Certificate in KeyInfo")
     der = base64.b64decode(re.sub(r"\s+", "", el.text))
@@ -189,18 +191,45 @@ def verify_xml(
     check_revocation: bool = False,
     tsa_trust_roots: Optional[list] = None,
     tsa_other_certs: Optional[list] = None,
-) -> VerifyResult:
-    """Verify a XAdES-BES/-T enveloped signature. If `trust_roots` is given, also validate the
-    certificate chain (level 2); with `check_revocation=True` it also checks CRL/OCSP (level 3,
-    needs network). Otherwise only integrity (level 1).
+) -> list[VerifyResult]:
+    """Verify every <ds:Signature> in a XAdES-BES/-T document, returning one VerifyResult per
+    signature (like verify_pdf) -- or a single INVALID result if the document carries none. The
+    caller aggregates them (worst indication wins).
 
-    With `tsa_trust_roots` (from --tsa-ca) a XAdES-T timestamp's TSA is validated; on success the
-    signing certificate is evaluated at the trusted genTime instead of now (long-term validation)."""
-    checks: list = []
+    If `trust_roots` is given, each signature's certificate chain is also validated (level 2); with
+    `check_revocation=True` it also checks CRL/OCSP (level 3, needs network). Otherwise only
+    integrity (level 1). With `tsa_trust_roots` (from --tsa-ca) a XAdES-T timestamp's TSA is
+    validated; on success the signing certificate is evaluated at the trusted genTime instead of now
+    (long-term validation)."""
     root = etree.fromstring(xml_bytes)
-    sig = root.find(_ds("Signature"))
-    if sig is None:
-        return VerifyResult("INVALID", [Check("signature present", False, "no <ds:Signature>")])
+    sigs = root.findall(_ds("Signature"))
+    if not sigs:
+        return [VerifyResult("INVALID", [Check("signature present", False, "no <ds:Signature>")])]
+    return [
+        _verify_signature(
+            root, sig, trust_roots=trust_roots, intermediates=intermediates, at_time=at_time,
+            check_revocation=check_revocation, tsa_trust_roots=tsa_trust_roots,
+            tsa_other_certs=tsa_other_certs,
+        )
+        for sig in sigs
+    ]
+
+
+def _verify_signature(
+    root,
+    sig,
+    *,
+    trust_roots: Optional[list] = None,
+    intermediates: Optional[list] = None,
+    at_time: Optional[datetime] = None,
+    check_revocation: bool = False,
+    tsa_trust_roots: Optional[list] = None,
+    tsa_other_certs: Optional[list] = None,
+) -> VerifyResult:
+    """Verify one already-located <ds:Signature> element. The document-level enveloped digest is
+    computed over `root` (all signatures stripped, per this tool's enveloped convention), while
+    every other check is scoped to `sig`, so a multi-signature document verifies each independently."""
+    checks: list = []
 
     si = sig.find(_ds("SignedInfo"))
     sv_el = sig.find(_ds("SignatureValue"))
@@ -209,26 +238,31 @@ def verify_xml(
         return VerifyResult("INVALID", [Check("signature structure", False, f"malformed: no <ds:{missing}>")])
     refs = si.findall(_ds("Reference"))
     try:
-        cert, cert_der = _leaf_cert(root)
+        cert, cert_der = _leaf_cert(sig)
     except ValueError as exc:
         return VerifyResult("INVALID", [Check("signing certificate", False, str(exc))])
 
     ref_doc = next((r for r in refs if (r.get("URI") or "") == "" and r.get("Type") is None), None)
     ref_props = next((r for r in refs if r.get("Type") == SIGNED_PROPS_TYPE), None)
 
-    # 1. document (enveloped) reference digest
-    if ref_doc is not None:
-        got = _compute_enveloped_digest(root, sig)
-        stated = (ref_doc.find(_ds("DigestValue")).text or "").strip()
+    # 1. document (enveloped) reference digest. A Reference is only well-formed with a
+    # <ds:DigestValue> child; a malformed one (present but empty) is a failed check, never an
+    # uncaught AttributeError -- verify_xml is routinely handed untrusted input.
+    dv_doc = ref_doc.find(_ds("DigestValue")) if ref_doc is not None else None
+    if ref_doc is not None and dv_doc is not None:
+        got = _compute_enveloped_digest(root)
+        stated = (dv_doc.text or "").strip()
         checks.append(Check("document digest (reference)", got == stated))
     else:
-        checks.append(Check("document digest (reference)", False, "no enveloped reference"))
+        detail = "no enveloped reference" if ref_doc is None else "reference has no DigestValue"
+        checks.append(Check("document digest (reference)", False, detail))
 
-    # 2. SignedProperties reference digest
+    # 2. SignedProperties reference digest (same null-safety as the enveloped reference above).
     sp = sig.find(f"{_ds('Object')}/{_xades('QualifyingProperties')}/{_xades('SignedProperties')}")
-    if ref_props is not None and sp is not None:
+    dv_props = ref_props.find(_ds("DigestValue")) if ref_props is not None else None
+    if ref_props is not None and sp is not None and dv_props is not None:
         got = _sha256_b64(_c14n(sp))
-        stated = (ref_props.find(_ds("DigestValue")).text or "").strip()
+        stated = (dv_props.text or "").strip()
         checks.append(Check("signed-properties digest", got == stated))
     else:
         checks.append(Check("signed-properties digest", False, "missing SignedProperties reference"))

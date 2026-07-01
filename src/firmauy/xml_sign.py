@@ -71,8 +71,11 @@ def _nl_block(elem) -> None:
         child.tail = "\n"
 
 
-def _compute_enveloped_digest(root, signature) -> str:
-    """Enveloped transform output = C14N(root with the Signature removed)."""
+def _compute_enveloped_digest(root) -> str:
+    """Enveloped-transform output for this tool's convention: C14N(root with *every* <ds:Signature>
+    removed). Stripping all signatures (not just the current one) is what lets signatures co-sign the
+    same document -- each covers the identical signature-free content -- so this document digest is
+    stable no matter how many signatures the document carries."""
     root_copy = copy.deepcopy(root)
     for sig in root_copy.findall(_ds("Signature")):
         root_copy.remove(sig)
@@ -195,7 +198,7 @@ def sign_xml(
     p = _build_signature(root, cert, signing_time)
 
     # Phase 1: reference digests.
-    p["ref0_dv"].text = _compute_enveloped_digest(root, p["sig"])
+    p["ref0_dv"].text = _compute_enveloped_digest(root)
     p["refp_dv"].text = _sha256_b64(_c14n(p["sp"]))
 
     # Phase 2: sign the canonical SignedInfo on the token.

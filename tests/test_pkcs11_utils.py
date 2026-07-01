@@ -67,6 +67,16 @@ class TestNormalizeCertIdHex:
         with pytest.raises(typer.BadParameter):
             normalize_cert_id_hex("")
 
+    def test_odd_length_raises_bad_parameter(self):
+        # Valid hex characters but an odd count: a byte ID is always even-length. This used to slip
+        # through and blow up later in bytes.fromhex with a cryptic ValueError.
+        with pytest.raises(typer.BadParameter, match="odd number"):
+            normalize_cert_id_hex("abc")
+
+    def test_odd_length_with_separators_raises(self):
+        with pytest.raises(typer.BadParameter, match="odd number"):
+            normalize_cert_id_hex("ab:c")
+
 
 class TestCertIsExpired:
     def test_valid_cert_not_expired(self, cert_valid):

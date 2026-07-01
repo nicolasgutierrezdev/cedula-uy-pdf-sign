@@ -60,11 +60,21 @@ def iter_cert_objects(session: pkcs11.Session) -> Iterable[pkcs11.Object]:
 
 
 def normalize_cert_id_hex(cert_id_hex: str) -> str:
-    """Strip colons/spaces and validate that the result is valid hex."""
+    """Strip colons/spaces and validate that the result is valid, even-length hex.
+
+    A PKCS#11 object ID is a byte string, so its hex form always has an even number of digits.
+    Rejecting an odd length here (with a clear message) keeps the promise of "a valid hexadecimal
+    value": otherwise it would pass this check and then blow up later in ``bytes.fromhex`` with a
+    cryptic ``ValueError``."""
     normalized = cert_id_hex.replace(":", "").replace(" ", "").upper()
     if not re.fullmatch(r"[0-9A-F]+", normalized):
         raise typer.BadParameter(
             f"--cert-id '{cert_id_hex}' is not a valid hexadecimal value."
+        )
+    if len(normalized) % 2 != 0:
+        raise typer.BadParameter(
+            f"--cert-id '{cert_id_hex}' has an odd number of hex digits; "
+            "a byte ID is an even-length hex string."
         )
     return normalized
 
